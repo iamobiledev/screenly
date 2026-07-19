@@ -1,6 +1,6 @@
 import AVFoundation
 import CoreImage
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 final class CaptureEngine: NSObject, @unchecked Sendable {
     private let captureQueue = DispatchQueue(
@@ -40,10 +40,20 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         onError: @escaping @Sendable (Error) -> Void,
         onCameraFrame: @escaping @Sendable (CGImage) -> Void
     ) async throws {
+        resetForNewRecording()
         self.onError = onError
         self.onCameraFrame = onCameraFrame
         webcamFrame = options.webcamFrame
         includesWebcam = options.showsWebcam
+        var didStart = false
+        defer {
+            if !didStart {
+                writer?.cancelWriting()
+                cameraSession?.stopRunning()
+                try? FileManager.default.removeItem(at: outputURL)
+                releaseCaptureResources()
+            }
+        }
 
         let content = try await SCShareableContent.excludingDesktopWindows(
             false,
@@ -95,6 +105,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
 
         try await stream.startCapture()
         cameraSession?.startRunning()
+        didStart = true
     }
 
     func setPaused(_ shouldPause: Bool) {
@@ -126,17 +137,49 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
                 systemAudioInput?.markAsFinished()
                 microphoneInput?.markAsFinished()
 
-                writer.finishWriting {
-                    if writer.status == .completed {
-                        continuation.resume(returning: writer.outputURL)
-                    } else {
-                        continuation.resume(
-                            throwing: writer.error ?? CaptureError.writerFailed
-                        )
+                let finalizer = AssetWriterFinalizer(writer)
+                writer.finishWriting { [self, finalizer] in
+                    let status = finalizer.writer.status
+                    let outputURL = finalizer.writer.outputURL
+                    let error = finalizer.writer.error
+                    captureQueue.async {
+                        releaseCaptureResources()
+                        if status == .completed {
+                            continuation.resume(returning: outputURL)
+                        } else {
+                            continuation.resume(
+                                throwing: error ?? CaptureError.writerFailed
+                            )
+                        }
                     }
                 }
             }
         }
+    }
+
+    private func resetForNewRecording() {
+        releaseCaptureResources()
+        firstPresentationTime = nil
+        accumulatedPauseDuration = .zero
+        pauseStartedAt = nil
+        paused = false
+        outputSize = .zero
+        includesWebcam = false
+        cameraLock.lock()
+        latestCameraBuffer = nil
+        cameraLock.unlock()
+    }
+
+    private func releaseCaptureResources() {
+        stream = nil
+        cameraSession = nil
+        writer = nil
+        videoInput = nil
+        systemAudioInput = nil
+        microphoneInput = nil
+        pixelBufferAdaptor = nil
+        onError = nil
+        onCameraFrame = nil
     }
 
     private func makeCaptureConfiguration(
@@ -151,6 +194,9 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         let filter: SCContentFilter
         let sourceSize: CGSize
         let sourceRect: CGRect?
+        let excludedApplications = content.applications.filter {
+            $0.bundleIdentifier == Bundle.main.bundleIdentifier
+        }
 
         switch target {
         case let .display(displayID):
@@ -159,7 +205,11 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
             }) else {
                 throw CaptureError.targetUnavailable
             }
-            filter = SCContentFilter(display: display, excludingWindows: [])
+            filter = SCContentFilter(
+                display: display,
+                excludingApplications: excludedApplications,
+                exceptingWindows: []
+            )
             sourceSize = CGSize(
                 width: CGFloat(CGDisplayPixelsWide(displayID)),
                 height: CGFloat(CGDisplayPixelsHigh(displayID))
@@ -185,7 +235,11 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
             }) else {
                 throw CaptureError.targetUnavailable
             }
-            filter = SCContentFilter(display: display, excludingWindows: [])
+            filter = SCContentFilter(
+                display: display,
+                excludingApplications: excludedApplications,
+                exceptingWindows: []
+            )
             let scale = CGFloat(CGDisplayPixelsWide(displayID)) /
                 max(display.frame.width, 1)
             sourceSize = CGSize(
@@ -350,7 +404,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         }
 
         let presentationTime = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard let adjustedTime = adjustedTime(for: presentationTime) else {
+        guard let adjustedTime = adjustedVideoTime(for: presentationTime) else {
             return
         }
 
@@ -402,7 +456,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         }
     }
 
-    private func adjustedTime(for time: CMTime) -> CMTime? {
+    private func adjustedVideoTime(for time: CMTime) -> CMTime? {
         if paused {
             if pauseStartedAt == nil {
                 pauseStartedAt = time
@@ -423,8 +477,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
     private func adjustedSampleBuffer(
         _ sampleBuffer: CMSampleBuffer
     ) -> CMSampleBuffer? {
-        let time = CMSampleBufferGetPresentationTimeStamp(sampleBuffer)
-        guard adjustedTime(for: time) != nil else {
+        guard !paused, pauseStartedAt == nil else {
             return nil
         }
 
@@ -505,6 +558,12 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
         )
         let camera = image
             .cropped(to: crop)
+            .transformed(
+                by: CGAffineTransform(
+                    translationX: -crop.minX,
+                    y: -crop.minY
+                )
+            )
             .transformed(
                 by: CGAffineTransform(
                     scaleX: frame.width / square,
@@ -594,6 +653,14 @@ extension CaptureEngine: AVCaptureVideoDataOutputSampleBufferDelegate {
         if let preview = ciContext.createCGImage(image, from: image.extent) {
             onCameraFrame?(preview)
         }
+    }
+}
+
+private final class AssetWriterFinalizer: @unchecked Sendable {
+    let writer: AVAssetWriter
+
+    init(_ writer: AVAssetWriter) {
+        self.writer = writer
     }
 }
 

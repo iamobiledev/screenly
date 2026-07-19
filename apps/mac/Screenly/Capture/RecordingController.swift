@@ -125,6 +125,7 @@ final class RecordingController: ObservableObject {
     func discard() {
         activeUploadTask?.cancel()
         stopElapsedTimer()
+        let client = makeClient()
 
         Task { [weak self] in
             guard let self else { return }
@@ -132,6 +133,12 @@ final class RecordingController: ObservableObject {
                 _ = try? await engine.stop()
             }
             if let currentFileURL {
+                if let client {
+                    await uploader.discard(
+                        fileURL: currentFileURL,
+                        client: client
+                    )
+                }
                 try? FileManager.default.removeItem(at: currentFileURL)
             }
             self.currentFileURL = nil
@@ -213,6 +220,12 @@ final class RecordingController: ObservableObject {
         guard let baseURL = URL(string: settings.serverURL),
               ["http", "https"].contains(baseURL.scheme?.lowercased()),
               !settings.apiToken.isEmpty else {
+            return nil
+        }
+        if baseURL.scheme?.lowercased() == "http",
+           !["localhost", "127.0.0.1", "::1"].contains(
+               baseURL.host?.lowercased() ?? ""
+           ) {
             return nil
         }
         return ScreenlyAPIClient(baseURL: baseURL, token: settings.apiToken)

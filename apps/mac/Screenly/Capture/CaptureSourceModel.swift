@@ -1,6 +1,6 @@
 import AppKit
 import Combine
-import ScreenCaptureKit
+@preconcurrency import ScreenCaptureKit
 
 @MainActor
 final class CaptureSourceModel: ObservableObject {

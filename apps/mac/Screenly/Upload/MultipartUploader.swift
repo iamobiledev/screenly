@@ -133,6 +133,17 @@ actor MultipartUploader {
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
 
+    func discard(fileURL: URL, client: ScreenlyAPIClient) async {
+        guard let checkpoint = await checkpointStore.checkpoint(
+            for: fileURL,
+            serverURL: client.baseURL
+        ) else {
+            return
+        }
+        try? await client.discard(videoID: checkpoint.initiation.videoID)
+        await checkpointStore.remove(videoID: checkpoint.initiation.videoID)
+    }
+
     private func uploadPart(_ data: Data, to url: URL) async throws -> String {
         var request = URLRequest(url: url)
         request.httpMethod = "PUT"

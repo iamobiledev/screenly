@@ -1,10 +1,11 @@
 import Carbon
 import Foundation
 
+private let screenlyHotkeySignature: OSType = 0x5343_524E // "SCRN"
+private let screenlyHotkeyIdentifier: UInt32 = 1
+
 @MainActor
 final class GlobalHotkey {
-    private let signature: OSType = 0x5343_524E // "SCRN"
-    private let identifier: UInt32 = 1
     private var hotKeyReference: EventHotKeyRef?
     private var eventHandlerReference: EventHandlerRef?
     private var onPressed: (() -> Void)?
@@ -45,8 +46,8 @@ final class GlobalHotkey {
                 let owner = Unmanaged<GlobalHotkey>
                     .fromOpaque(userData)
                     .takeUnretainedValue()
-                guard hotKeyID.signature == owner.signature,
-                      hotKeyID.id == owner.identifier else {
+                guard hotKeyID.signature == screenlyHotkeySignature,
+                      hotKeyID.id == screenlyHotkeyIdentifier else {
                     return OSStatus(eventNotHandledErr)
                 }
 
@@ -61,7 +62,10 @@ final class GlobalHotkey {
             &eventHandlerReference
         )
 
-        let hotKeyID = EventHotKeyID(signature: signature, id: identifier)
+        let hotKeyID = EventHotKeyID(
+            signature: screenlyHotkeySignature,
+            id: screenlyHotkeyIdentifier
+        )
         RegisterEventHotKey(
             choice.keyCode,
             choice.modifiers,
@@ -84,14 +88,6 @@ final class GlobalHotkey {
         onPressed = nil
     }
 
-    deinit {
-        if let hotKeyReference {
-            UnregisterEventHotKey(hotKeyReference)
-        }
-        if let eventHandlerReference {
-            RemoveEventHandler(eventHandlerReference)
-        }
-    }
 }
 
 enum HotkeyChoice: String, CaseIterable, Identifiable {
