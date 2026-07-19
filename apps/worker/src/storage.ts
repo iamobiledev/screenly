@@ -1,6 +1,7 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
@@ -36,8 +37,8 @@ export class ObjectStorage {
       }),
     );
 
-    if (!response.Body) {
-      throw new Error(`Object ${key} returned an empty response body.`);
+    if (!(response.Body instanceof Readable)) {
+      throw new Error(`Object ${key} did not return a Node.js byte stream.`);
     }
 
     await pipeline(response.Body, createWriteStream(destination));
