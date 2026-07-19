@@ -1,0 +1,43 @@
+name: Screenly
+
+options:
+  bundleIdPrefix: com.screenly
+  deploymentTarget:
+    macOS: "15.0"
+  generateEmptyDirectories: true
+
+settings:
+  base:
+    SWIFT_VERSION: "6.0"
+    CODE_SIGN_STYLE: Automatic
+    ENABLE_HARDENED_RUNTIME: YES
+    MACOSX_DEPLOYMENT_TARGET: "15.0"
+
+targets:
+  Screenly:
+    type: application
+    platform: macOS
+    sources:
+      - path: Screenly
+        excludes:
+          - Resources/Info.plist
+          - Resources/Screenly.entitlements
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.screenly.recorder
+        PRODUCT_NAME: Screenly
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_FILE: Screenly/Resources/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Screenly/Resources/Screenly.entitlements
+
+schemes:
+  Screenly:
+    build:
+      targets:
+        Screenly: all
+    run:
+      config: Debug
+    archive:
+      config: Release

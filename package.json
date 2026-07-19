@@ -1,0 +1,15 @@
+{
+  "name": "screenly",
+  "version": "0.1.0",
+  "private": true,
+  "packageManager": "pnpm@11.15.0",
+  "scripts": {
+    "dev": "pnpm --filter @screenly/web dev",
+    "build": "pnpm --filter @screenly/web build && pnpm --filter @screenly/worker build",
+    "lint": "pnpm --filter @screenly/web lint",
+    "typecheck": "pnpm --filter @screenly/web typecheck && pnpm --filter @screenly/worker typecheck",
+    "db:generate": "pnpm --filter @screenly/web db:generate",
+    "db:migrate": "pnpm --filter @screenly/web db:migrate",
+    "db:studio": "pnpm --filter @screenly/web db:studio"
+  }
+}
