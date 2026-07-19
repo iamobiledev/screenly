@@ -37,6 +37,7 @@ export default async function LibraryPage({
         </Link>
         <div className="library-nav-actions">
           <span>Team library</span>
+          <Link href="/library/tokens">Recorder tokens</Link>
           <SignOutButton />
         </div>
       </nav>

@@ -4,7 +4,7 @@ import { getDb } from "@/db";
 import { videos } from "@/db/schema";
 import {
   apiErrorResponse,
-  isUploadAuthorized,
+  authenticateUploadRequest,
   unauthorizedResponse,
 } from "@/lib/api";
 import { abortMultipartUpload } from "@/lib/storage";
@@ -15,7 +15,7 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!isUploadAuthorized(request)) {
+  if (!(await authenticateUploadRequest(request))) {
     return unauthorizedResponse();
   }
 

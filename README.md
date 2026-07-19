@@ -5,8 +5,8 @@ native macOS recorder creates a share link before its upload starts so the link
 can be pasted into Slack immediately while the viewer displays a live
 processing state.
 
-This repository currently contains the first vertical slice: a Next.js viewer,
-Neon data model, and resumable S3-compatible upload API. Open
+The repository contains the complete application foundation: the web product,
+native recorder, resumable upload path, and ffmpeg processing job. Open
 [`/v/demo1234`](http://localhost:3000/v/demo1234) to view the built-in demo
 without configuring external services.
 
@@ -15,10 +15,8 @@ without configuring external services.
 ```text
 apps/
   web/        Next.js App Router UI and HTTP API
-  mac/        Native Swift/SwiftUI recorder (next implementation phase)
-  worker/     ffmpeg Cloud Run Job (processing phase)
-packages/
-  shared/     Cross-application API contracts (added with the recorder)
+  mac/        Native Swift/SwiftUI menu bar recorder
+  worker/     TypeScript ffmpeg Cloud Run Job
 ```
 
 Production is designed around:
@@ -33,6 +31,10 @@ Production is designed around:
 No recording bytes pass through the Next.js service. The API creates a video
 record and share slug, then issues short-lived presigned multipart URLs so the
 Mac app uploads directly to object storage.
+
+The recorder writes microphone and system audio as separate source tracks.
+The processing job mixes them into one AAC track for consistent browser
+playback.
 
 ## Local development
 
@@ -70,10 +72,11 @@ Its S3 endpoint is `http://localhost:9000` and its console is available at
 
 ## Upload API
 
-Recorder endpoints require:
+Recorder endpoints require a per-recorder token created from
+`/library/tokens`:
 
 ```http
-Authorization: Bearer <UPLOAD_API_TOKEN>
+Authorization: Bearer <RECORDER_TOKEN>
 ```
 
 The resumable flow is:
@@ -88,8 +91,10 @@ The resumable flow is:
 An active multipart upload can be discarded with
 `DELETE /api/uploads/:videoId`. The public viewer is `/v/:slug`.
 
-The temporary shared `UPLOAD_API_TOKEN` will be replaced by hashed, per-user
-recorder tokens during the authentication phase.
+Only SHA-256 token hashes are stored in Neon. Tokens can be independently
+revoked without affecting uploaded recordings. `UPLOAD_API_TOKEN` remains as
+an optional bootstrap/recovery credential and should not be installed on team
+devices.
 
 ## Database changes
 
@@ -115,53 +120,112 @@ docker compose up --build
 The web image is a non-root, Next.js standalone production image. The Compose
 stack includes MinIO for development but intentionally does not emulate Neon.
 
+To process one uploaded video locally, install ffmpeg or run the worker profile:
+
+```bash
+VIDEO_ID=<database-video-uuid> docker compose --profile processor run --rm worker
+```
+
 ## Google Cloud Run
 
 Create an Artifact Registry Docker repository named `screenly`, then build and
-push the image with Cloud Build:
+push both images with Cloud Build:
 
 ```bash
 gcloud builds submit \
   --config cloudbuild.yaml \
-  --substitutions=_IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/screenly/web
+  --substitutions=_WEB_IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/screenly/web,_WORKER_IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker
 ```
 
-Deploy the `latest` image as an unauthenticated Cloud Run service so possession
-of a share link is sufficient to watch a recording:
+Create the processor job first. Map `DATABASE_URL` and S3 credentials from
+Secret Manager in a real deployment:
+
+```bash
+gcloud run jobs deploy screenly-processor \
+  --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker:latest \
+  --region us-central1 \
+  --tasks 1 \
+  --max-retries 3 \
+  --task-timeout 3600s \
+  --set-env-vars S3_REGION=us-east-1,S3_BUCKET=screenly,HLS_THRESHOLD_SECONDS=1200
+```
+
+Deploy the web image as an unauthenticated service so possession of a share
+link is sufficient to watch a recording:
 
 ```bash
 gcloud run deploy screenly-web \
   --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/web:latest \
   --region us-central1 \
   --port 3000 \
-  --allow-unauthenticated
+  --allow-unauthenticated \
+  --set-env-vars PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor
 ```
 
-Store `DATABASE_URL`, `UPLOAD_API_TOKEN`, and object-store credentials in
-Google Secret Manager and map them into the service. Configure the remaining
-values from `.env.example` as Cloud Run environment variables. The service
-health endpoint is `/api/health`.
+Grant the web service account permission to execute the private job:
 
-Video processing will be deployed as a separate Cloud Run Job rather than a
-background process inside the web service. Each execution receives one video
-ID, runs ffprobe/ffmpeg, writes generated assets to object storage, and updates
-Neon. Cloud Run Job retries provide durable failure handling without keeping a
-web instance alive.
+```bash
+gcloud run jobs add-iam-policy-binding screenly-processor \
+  --region us-central1 \
+  --member serviceAccount:SCREENLY_WEB_SERVICE_ACCOUNT \
+  --role roles/run.invoker
+```
 
-## macOS distribution
+Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
+`UPLOAD_API_TOKEN`, workspace password, and object-store credentials in Google
+Secret Manager. Apply the committed Drizzle migrations before routing traffic
+to a new schema-dependent revision. The service health endpoint is
+`/api/health`.
 
-The recorder will be a native Swift/SwiftUI `LSUIElement` application using
-ScreenCaptureKit and AVAssetWriter. Its release workflow will:
+Each job receives one `VIDEO_ID` override from the web service. A database
+lease prevents duplicate Cloud Run executions from processing the same video.
+The job probes compatibility, mixes audio when needed, creates MP4, thumbnail,
+animated preview and optional HLS assets, then atomically marks the video
+ready.
 
-1. Archive a universal Apple Silicon/Intel build with hardened runtime enabled.
-2. Sign the application and installer with Developer ID certificates.
-3. Submit the DMG to Apple’s notary service and staple the ticket.
-4. Upload the versioned DMG and update manifest to object storage.
-5. Expose the latest signed build from `/download`.
+## macOS build and distribution
 
-Exact `xcodebuild`, signing, and notarization commands will be added alongside
-the Xcode project so the documented bundle identifiers and schemes remain
-executable rather than placeholders.
+The recorder targets macOS 15 and requires Xcode 16.3 or newer. Generate the
+Xcode project from the committed specification:
+
+```bash
+brew install xcodegen
+cd apps/mac
+xcodegen generate
+xcodebuild \
+  -project Screenly.xcodeproj \
+  -scheme Screenly \
+  -configuration Debug \
+  build
+```
+
+Set the signing team in Xcode for development. The production release script
+archives with hardened runtime, creates and signs a DMG, submits it to Apple,
+waits for notarization, staples the ticket, validates it, and emits a SHA-256
+file:
+
+```bash
+export APPLE_ID=builds@example.com
+export APPLE_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+export APPLE_TEAM_ID=ABCDE12345
+export MAC_APP_VERSION=1.0.0
+export MAC_BUILD_NUMBER=1
+bash apps/mac/scripts/build-release.sh
+```
+
+The `Release macOS recorder` GitHub Actions workflow additionally imports the
+Developer ID certificate and publishes versioned and `Screenly-latest.dmg`
+objects to S3-compatible storage. Configure these secrets:
+
+- `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
+- `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
+- `MAC_RELEASE_S3_ACCESS_KEY_ID`, `MAC_RELEASE_S3_SECRET_ACCESS_KEY`
+
+Configure repository variables `MAC_RELEASE_S3_URI`,
+`MAC_RELEASE_S3_REGION`, and optional `MAC_RELEASE_S3_ENDPOINT`. Finally set
+`MAC_APP_DOWNLOAD_URL`, `MAC_APP_VERSION`, and `MAC_APP_SHA256` on the web
+service. `/download` and `/api/releases/macos/latest` then expose the signed
+build.
 
 ## Current verification commands
 
@@ -171,4 +235,7 @@ pnpm typecheck
 pnpm build
 docker compose config
 docker build -f apps/web/Dockerfile .
+docker build -f apps/worker/Dockerfile .
+# On macOS:
+xcodebuild -project apps/mac/Screenly.xcodeproj -scheme Screenly build
 ```

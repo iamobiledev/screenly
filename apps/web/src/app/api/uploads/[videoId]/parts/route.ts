@@ -5,7 +5,7 @@ import { getDb } from "@/db";
 import { videos } from "@/db/schema";
 import {
   apiErrorResponse,
-  isUploadAuthorized,
+  authenticateUploadRequest,
   unauthorizedResponse,
 } from "@/lib/api";
 import { signUploadParts } from "@/lib/storage";
@@ -27,7 +27,7 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!isUploadAuthorized(request)) {
+  if (!(await authenticateUploadRequest(request))) {
     return unauthorizedResponse();
   }
 

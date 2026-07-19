@@ -2,21 +2,31 @@ import { timingSafeEqual } from "node:crypto";
 
 import { ZodError } from "zod";
 
-export function isUploadAuthorized(request: Request) {
+import { authenticateRecorderToken } from "@/features/auth/recorder-tokens";
+
+export async function authenticateUploadRequest(request: Request) {
   const expectedToken = process.env.UPLOAD_API_TOKEN;
   const authorization = request.headers.get("authorization");
 
-  if (!expectedToken || !authorization?.startsWith("Bearer ")) {
-    return false;
+  if (!authorization?.startsWith("Bearer ")) {
+    return null;
   }
 
   const receivedToken = authorization.slice("Bearer ".length);
-  const expected = Buffer.from(expectedToken);
-  const received = Buffer.from(receivedToken);
+  if (expectedToken) {
+    const expected = Buffer.from(expectedToken);
+    const received = Buffer.from(receivedToken);
 
-  return (
-    expected.length === received.length && timingSafeEqual(expected, received)
-  );
+    if (
+      expected.length === received.length &&
+      timingSafeEqual(expected, received)
+    ) {
+      return { recorderName: null };
+    }
+  }
+
+  const recorder = await authenticateRecorderToken(receivedToken);
+  return recorder ? { recorderName: recorder.name } : null;
 }
 
 export function unauthorizedResponse() {

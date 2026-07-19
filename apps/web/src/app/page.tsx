@@ -28,7 +28,9 @@ export default function Home() {
             Watch demo
             <span aria-hidden="true">→</span>
           </Link>
-          <span className="platform-note">Native macOS recorder</span>
+          <Link className="secondary-button" href="/download">
+            Download for Mac
+          </Link>
         </div>
       </section>
 

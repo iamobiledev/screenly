@@ -12,7 +12,7 @@ const serverEnvSchema = z.object({
   S3_PUBLIC_BASE_URL: z.url().optional(),
   S3_REGION: z.string().min(1).default("auto"),
   S3_SECRET_ACCESS_KEY: z.string().min(1),
-  UPLOAD_API_TOKEN: z.string().min(32),
+  UPLOAD_API_TOKEN: z.string().min(32).optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

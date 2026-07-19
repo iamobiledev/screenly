@@ -61,5 +61,24 @@ export const videos = pgTable(
   ],
 );
 
+export const recorderTokens = pgTable(
+  "recorder_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 120 }).notNull(),
+    tokenPrefix: varchar("token_prefix", { length: 20 }).notNull(),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (table) => [
+    uniqueIndex("recorder_tokens_hash_unique").on(table.tokenHash),
+    index("recorder_tokens_created_at_index").on(table.createdAt),
+  ],
+);
+
 export type Video = typeof videos.$inferSelect;
 export type NewVideo = typeof videos.$inferInsert;

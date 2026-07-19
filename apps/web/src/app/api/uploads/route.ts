@@ -6,7 +6,7 @@ import { getDb } from "@/db";
 import { videos } from "@/db/schema";
 import {
   apiErrorResponse,
-  isUploadAuthorized,
+  authenticateUploadRequest,
   unauthorizedResponse,
 } from "@/lib/api";
 import {
@@ -36,7 +36,8 @@ const initiateUploadSchema = z.object({
 });
 
 export async function POST(request: Request) {
-  if (!isUploadAuthorized(request)) {
+  const authentication = await authenticateUploadRequest(request);
+  if (!authentication) {
     return unauthorizedResponse();
   }
 
@@ -62,7 +63,7 @@ export async function POST(request: Request) {
       id: videoId,
       slug,
       title,
-      recorderName: input.recorderName,
+      recorderName: authentication.recorderName ?? input.recorderName,
       sourceObjectKey: objectKey,
       contentType: input.contentType,
       sizeBytes: input.sizeBytes,

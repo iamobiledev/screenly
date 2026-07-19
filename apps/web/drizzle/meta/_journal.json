@@ -15,6 +15,13 @@
       "when": 1784431312569,
       "tag": "0001_wild_gressill",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1784431598353,
+      "tag": "0002_cultured_sabretooth",
+      "breakpoints": true
     }
   ]
 }

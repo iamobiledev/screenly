@@ -761,6 +761,220 @@ a {
   margin-top: 20px;
 }
 
+.page-description {
+  max-width: 620px;
+  margin: 12px 0 0;
+  color: var(--muted);
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.token-page .library-heading {
+  padding-bottom: 26px;
+}
+
+.token-manager {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: opacity 150ms ease;
+}
+
+.token-manager.is-pending {
+  opacity: 0.65;
+}
+
+.token-create-form {
+  display: flex;
+  gap: 10px;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+.token-create-form input {
+  flex: 1;
+  min-width: 0;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  outline: none;
+  font: inherit;
+}
+
+.token-create-form input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(102, 86, 232, 0.12);
+}
+
+.token-create-form .primary-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.new-token-panel {
+  display: grid;
+  align-items: center;
+  gap: 14px;
+  padding: 20px;
+  border-bottom: 1px solid #c9c4f5;
+  background: #f2f0ff;
+  grid-template-columns: 1fr auto;
+}
+
+.new-token-panel p {
+  margin: 4px 0 0;
+  color: #67627d;
+  font-size: 12px;
+}
+
+.new-token-panel code {
+  overflow: auto;
+  padding: 10px;
+  border: 1px solid #d9d5ff;
+  border-radius: 8px;
+  background: white;
+  font-size: 11px;
+  grid-column: 1 / -1;
+}
+
+.new-token-panel .secondary-button {
+  grid-column: 2;
+  grid-row: 1;
+}
+
+.token-manager > .form-error {
+  margin: 14px 20px;
+}
+
+.token-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24px;
+  padding: 18px 20px;
+}
+
+.token-row + .token-row {
+  border-top: 1px solid var(--line);
+}
+
+.token-row strong {
+  font-size: 14px;
+}
+
+.token-row p,
+.token-row span {
+  margin: 5px 0 0;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.token-row > div:last-child {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+.token-row button {
+  border: 0;
+  color: #b42318;
+  background: transparent;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.empty-token-list {
+  padding: 42px 20px;
+  color: var(--muted);
+  font-size: 13px;
+  text-align: center;
+}
+
+.download-shell {
+  width: min(920px, calc(100% - 48px));
+  min-height: 100vh;
+  margin: 0 auto;
+  padding: 28px 0 80px;
+}
+
+.download-shell .home-nav > a:last-child {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.download-card {
+  display: flex;
+  max-width: 720px;
+  align-items: center;
+  margin: 110px auto 0;
+  flex-direction: column;
+  text-align: center;
+}
+
+.mac-app-icon {
+  display: grid;
+  width: 92px;
+  height: 92px;
+  margin-bottom: 28px;
+  place-items: center;
+  border-radius: 23px;
+  background: linear-gradient(145deg, #ffffff, #e8e6ff);
+  box-shadow:
+    inset 0 0 0 1px rgba(60, 50, 130, 0.08),
+    0 20px 55px rgba(59, 47, 145, 0.2);
+}
+
+.mac-app-icon .brand-mark {
+  width: 48px;
+  height: 48px;
+  border-radius: 14px;
+  transform: scale(1.35);
+}
+
+.download-card .eyebrow {
+  margin-bottom: 15px;
+}
+
+.download-card h1 {
+  margin: 0;
+  font-size: clamp(46px, 8vw, 76px);
+  font-weight: 620;
+  letter-spacing: -0.07em;
+  line-height: 0.98;
+}
+
+.download-card > p:not(.eyebrow) {
+  max-width: 620px;
+  margin: 25px 0 32px;
+  color: var(--muted);
+  font-size: 17px;
+  line-height: 1.6;
+}
+
+.release-meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-top: 15px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.release-meta code {
+  padding-left: 10px;
+  border-left: 1px solid var(--line);
+}
+
+.release-unavailable {
+  padding: 13px 16px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 13px;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
@@ -856,6 +1070,41 @@ a {
 
   .library-nav-actions > span {
     display: none;
+  }
+
+  .token-create-form,
+  .token-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .token-create-form input {
+    min-height: 44px;
+  }
+
+  .token-row > div:last-child {
+    justify-content: space-between;
+  }
+
+  .download-shell {
+    width: min(100% - 28px, 920px);
+    padding-top: 18px;
+  }
+
+  .download-card {
+    margin-top: 80px;
+  }
+
+  .release-meta {
+    align-items: center;
+    flex-direction: column;
+  }
+
+  .release-meta code {
+    padding-top: 8px;
+    padding-left: 0;
+    border-top: 1px solid var(--line);
+    border-left: 0;
   }
 }
 
