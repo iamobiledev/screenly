@@ -10,7 +10,10 @@ export default function Home() {
           </span>
           Screenly
         </div>
-        <span className="internal-pill">Internal preview</span>
+        <div className="home-nav-actions">
+          <Link href="/library">Team library</Link>
+          <span className="internal-pill">Internal preview</span>
+        </div>
       </nav>
 
       <section className="home-hero">

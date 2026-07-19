@@ -5,6 +5,8 @@ import { cache } from "react";
 
 import { CopyLinkButton } from "@/components/copy-link-button";
 import { ProcessingState } from "@/components/processing-state";
+import { VideoPlayer } from "@/components/video-player";
+import { ViewTracker } from "@/components/view-tracker";
 import { getPublicVideoBySlug } from "@/features/videos/video-service";
 
 export const dynamic = "force-dynamic";
@@ -56,13 +58,10 @@ export default async function VideoPage({
       <section className="viewer-content">
         <div className="video-stage">
           {video.status === "ready" && video.playbackUrl ? (
-            <video
-              aria-label={video.title}
-              controls
-              playsInline
-              poster={video.thumbnailUrl ?? undefined}
-              preload="metadata"
-              src={video.playbackUrl}
+            <VideoPlayer
+              posterUrl={video.thumbnailUrl}
+              title={video.title}
+              videoUrl={video.playbackUrl}
             />
           ) : video.status === "uploading" ||
             video.status === "processing" ? (
@@ -93,6 +92,7 @@ export default async function VideoPage({
           </div>
         </div>
       </section>
+      {video.status === "ready" ? <ViewTracker slug={video.slug} /> : null}
     </main>
   );
 }

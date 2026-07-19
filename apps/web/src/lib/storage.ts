@@ -2,6 +2,7 @@ import {
   AbortMultipartUploadCommand,
   CompleteMultipartUploadCommand,
   CreateMultipartUploadCommand,
+  DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
   S3Client,
@@ -154,6 +155,31 @@ export async function getPlaybackUrl(key: string) {
     }),
     { expiresIn: PLAYBACK_URL_TTL_SECONDS },
   );
+}
+
+export async function deleteObjects(keys: Array<string | null>) {
+  const objectKeys = [...new Set(keys.filter((key): key is string => Boolean(key)))];
+
+  if (objectKeys.length === 0) {
+    return;
+  }
+
+  const env = getServerEnv();
+  const result = await getStorageClient().send(
+    new DeleteObjectsCommand({
+      Bucket: env.S3_BUCKET,
+      Delete: {
+        Objects: objectKeys.map((Key) => ({ Key })),
+        Quiet: true,
+      },
+    }),
+  );
+
+  if (result.Errors?.length) {
+    throw new Error(
+      `Object deletion failed for: ${result.Errors.map((error) => error.Key).join(", ")}`,
+    );
+  }
 }
 
 function encodeObjectKey(key: string) {
