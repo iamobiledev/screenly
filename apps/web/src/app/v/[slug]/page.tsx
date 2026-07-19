@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cache } from "react";
 
@@ -43,12 +44,12 @@ export default async function VideoPage({
   return (
     <main className="viewer-shell">
       <header className="viewer-header">
-        <a className="brand" href="/">
+        <Link className="brand" href="/">
           <span className="brand-mark">
             <span />
           </span>
           Screenly
-        </a>
+        </Link>
         <CopyLinkButton />
       </header>
 
