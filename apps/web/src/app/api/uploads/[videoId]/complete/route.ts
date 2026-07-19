@@ -12,6 +12,7 @@ import {
   completeMultipartUpload,
   objectExists,
 } from "@/lib/storage";
+import { dispatchProcessingJob } from "@/lib/processing";
 
 export const runtime = "nodejs";
 
@@ -62,7 +63,18 @@ export async function POST(
     }
 
     if (video.status !== "uploading" || !video.multipartUploadId) {
-      if (video.status === "processing" || video.status === "ready") {
+      if (video.status === "processing") {
+        if (!video.processingDispatchedAt) {
+          await dispatchAndMarkProcessing(video.id);
+        }
+        return Response.json({
+          videoId: video.id,
+          slug: video.slug,
+          status: video.status,
+        });
+      }
+
+      if (video.status === "ready") {
         return Response.json({
           videoId: video.id,
           slug: video.slug,
@@ -111,6 +123,8 @@ export async function POST(
       })
       .where(eq(videos.id, video.id));
 
+    await dispatchAndMarkProcessing(video.id);
+
     return Response.json(
       {
         videoId: video.id,
@@ -121,5 +135,17 @@ export async function POST(
     );
   } catch (error) {
     return apiErrorResponse(error);
+  }
+}
+
+async function dispatchAndMarkProcessing(videoID: string) {
+  if (await dispatchProcessingJob(videoID)) {
+    await getDb()
+      .update(videos)
+      .set({
+        processingDispatchedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(eq(videos.id, videoID));
   }
 }

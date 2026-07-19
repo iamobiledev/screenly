@@ -5,6 +5,7 @@ import {
   DeleteObjectsCommand,
   GetObjectCommand,
   HeadObjectCommand,
+  ListObjectsV2Command,
   S3Client,
   UploadPartCommand,
   type CompletedPart,
@@ -180,6 +181,23 @@ export async function deleteObjects(keys: Array<string | null>) {
       `Object deletion failed for: ${result.Errors.map((error) => error.Key).join(", ")}`,
     );
   }
+}
+
+export async function deleteObjectPrefix(prefix: string) {
+  const env = getServerEnv();
+  let continuationToken: string | undefined;
+
+  do {
+    const result = await getStorageClient().send(
+      new ListObjectsV2Command({
+        Bucket: env.S3_BUCKET,
+        Prefix: prefix,
+        ContinuationToken: continuationToken,
+      }),
+    );
+    await deleteObjects(result.Contents?.map((object) => object.Key ?? null) ?? []);
+    continuationToken = result.NextContinuationToken;
+  } while (continuationToken);
 }
 
 function encodeObjectKey(key: string) {

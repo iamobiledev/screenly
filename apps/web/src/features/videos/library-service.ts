@@ -2,7 +2,11 @@ import { desc, eq, ilike } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { videos } from "@/db/schema";
-import { deleteObjects, getPlaybackUrl } from "@/lib/storage";
+import {
+  deleteObjectPrefix,
+  deleteObjects,
+  getPlaybackUrl,
+} from "@/lib/storage";
 
 const LIBRARY_PAGE_SIZE = 50;
 
@@ -68,11 +72,9 @@ export async function deleteVideo(videoId: string) {
     return false;
   }
 
-  await deleteObjects([
-    video.sourceObjectKey,
-    video.playbackObjectKey,
-    video.thumbnailObjectKey,
-    video.previewObjectKey,
+  await Promise.all([
+    deleteObjects([video.sourceObjectKey]),
+    deleteObjectPrefix(`processed/${video.id}/`),
   ]);
   await getDb().delete(videos).where(eq(videos.id, video.id));
   return true;

@@ -1,5 +1,6 @@
 substitutions:
-  _IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/screenly/web
+  _WEB_IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/screenly/web
+  _WORKER_IMAGE: us-central1-docker.pkg.dev/$PROJECT_ID/screenly/worker
 
 steps:
   - name: gcr.io/cloud-builders/docker
@@ -8,16 +9,33 @@ steps:
       - --file
       - apps/web/Dockerfile
       - --tag
-      - ${_IMAGE}:$BUILD_ID
+      - ${_WEB_IMAGE}:$BUILD_ID
       - --tag
-      - ${_IMAGE}:latest
+      - ${_WEB_IMAGE}:latest
       - .
   - name: gcr.io/cloud-builders/docker
     args:
       - push
       - --all-tags
-      - ${_IMAGE}
+      - ${_WEB_IMAGE}
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - build
+      - --file
+      - apps/worker/Dockerfile
+      - --tag
+      - ${_WORKER_IMAGE}:$BUILD_ID
+      - --tag
+      - ${_WORKER_IMAGE}:latest
+      - .
+  - name: gcr.io/cloud-builders/docker
+    args:
+      - push
+      - --all-tags
+      - ${_WORKER_IMAGE}
 
 images:
-  - ${_IMAGE}:$BUILD_ID
-  - ${_IMAGE}:latest
+  - ${_WEB_IMAGE}:$BUILD_ID
+  - ${_WEB_IMAGE}:latest
+  - ${_WORKER_IMAGE}:$BUILD_ID
+  - ${_WORKER_IMAGE}:latest

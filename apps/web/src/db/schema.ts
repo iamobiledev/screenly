@@ -32,11 +32,19 @@ export const videos = pgTable(
     playbackObjectKey: text("playback_object_key"),
     thumbnailObjectKey: text("thumbnail_object_key"),
     previewObjectKey: text("preview_object_key"),
+    hlsManifestObjectKey: text("hls_manifest_object_key"),
     contentType: varchar("content_type", { length: 120 }).notNull(),
     sizeBytes: bigint("size_bytes", { mode: "number" }).notNull(),
     durationSeconds: integer("duration_seconds"),
     multipartUploadId: text("multipart_upload_id"),
     processingError: text("processing_error"),
+    processingDispatchedAt: timestamp("processing_dispatched_at", {
+      withTimezone: true,
+    }),
+    processingLeaseId: uuid("processing_lease_id"),
+    processingLeaseExpiresAt: timestamp("processing_lease_expires_at", {
+      withTimezone: true,
+    }),
     viewCount: integer("view_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
