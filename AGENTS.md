@@ -37,13 +37,21 @@ The notes below are the non-obvious things for this Linux cloud environment.
   rewrites the connection host to `https://api.<host>/sql`, so it **only works
   against a real Neon HTTP endpoint**. A plain local Postgres will NOT work at
   runtime, and there is no code path to repoint it without editing code.
-- Consequently these need a real Neon `DATABASE_URL`: `/library`,
-  `/library/tokens`, and the upload API (`/api/uploads/*`, `/api/videos/[slug]`
-  for non-demo slugs). Hitting them with a placeholder URL throws a
-  `NeonDbError: fetch failed` Next.js runtime error — this is expected, not a bug.
-- `pnpm db:migrate` / `db:generate` use drizzle-kit's own TCP Postgres driver,
-  so migrations can target a plain Postgres, but that does not make the runtime
-  app usable (runtime still uses neon-http).
+- `DATABASE_URL` is provided as an injected environment secret (a real Neon
+  endpoint). Because it is a real env var, it takes precedence over anything in
+  `apps/web/.env.local` (Next.js and dotenv do not override existing env vars),
+  so leave `DATABASE_URL` unset in `.env.local`.
+- The dev server only picks up the secret if it is running in the process
+  environment. If `pnpm dev` was started before the secret existed, restart it
+  (e.g. `export DATABASE_URL=...` then `pnpm dev`) or the DB-backed pages error.
+- Run `pnpm db:migrate` once against the Neon DB to create the `videos` and
+  `recorder_tokens` tables before using DB-backed flows.
+- These flows need the DB: `/library`, `/library/tokens`, and the upload API
+  (`/api/uploads/*`, `/api/videos/[slug]` for non-demo slugs). With the secret
+  applied and migrations run, they work end to end (verified: login → create
+  recorder token → resumable upload → worker processing → playback).
+- `pnpm db:migrate` / `db:generate` use drizzle-kit's own driver, which for a
+  Neon URL still connects over the Neon serverless protocol.
 
 ### What works without any external services
 
@@ -58,9 +66,21 @@ The notes below are the non-obvious things for this Linux cloud environment.
 
 ### Object storage (S3) and the worker
 
-- S3 is provided locally by MinIO via `docker compose up minio minio-init`
-  (Docker is NOT preinstalled on this VM). Endpoint `http://localhost:9000`,
-  console `http://localhost:9001`.
-- `apps/worker` is an ffmpeg processing job (ffmpeg is preinstalled). It reads a
-  single `VIDEO_ID` and needs both a real `DATABASE_URL` and S3 to do useful
-  work; see README "Docker" and "worker profile" sections.
+- The upload/playback flows need an S3-compatible store. The README uses
+  `docker compose up minio minio-init`, but **Docker is NOT preinstalled** on
+  this VM. A working alternative is the standalone MinIO server + `mc` client
+  binaries (from dl.min.io): run `minio server <datadir> --console-address :9001`
+  with `MINIO_ROOT_USER`/`MINIO_ROOT_PASSWORD` set to the `S3_ACCESS_KEY_ID` /
+  `S3_SECRET_ACCESS_KEY` from `.env.local`, then create the `screenly` bucket
+  (`mc mb local/screenly`). Endpoint is `http://localhost:9000`.
+- Because storage is served from local MinIO (`localhost:9000`), uploaded
+  recordings actually play in-browser. The built-in `/v/demo1234` sample is the
+  only asset that won't play (its external bucket 403s).
+- `PROCESSOR_MODE=manual` (the local default) means completing an upload does
+  NOT auto-dispatch processing; run the worker manually.
+- `apps/worker` is an ffmpeg processing job (ffmpeg is preinstalled). Run it as
+  `DATABASE_URL=... VIDEO_ID=<uuid> S3_ENDPOINT=http://localhost:9000
+  S3_FORCE_PATH_STYLE=true S3_ACCESS_KEY_ID=... S3_SECRET_ACCESS_KEY=...
+  S3_BUCKET=screenly node apps/worker/dist/index.js` (after `pnpm build`). It
+  claims the video by `VIDEO_ID`, transcodes if needed, generates a thumbnail +
+  animated preview, and marks the video `ready`.
