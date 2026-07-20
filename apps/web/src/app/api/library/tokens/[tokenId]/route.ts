@@ -1,9 +1,11 @@
 import { z } from "zod";
 
 import { revokeRecorderToken } from "@/features/auth/recorder-tokens";
+import { canManageWorkspace } from "@/features/auth/users";
 import { apiErrorResponse } from "@/lib/api";
 import {
-  isRequestAuthenticated,
+  getRequestAuth,
+  workspaceForbiddenResponse,
   workspaceUnauthorizedResponse,
 } from "@/lib/session";
 
@@ -13,13 +15,20 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ tokenId: string }> },
 ) {
-  if (!isRequestAuthenticated(request)) {
+  const authentication = await getRequestAuth(request);
+  if (!authentication) {
     return workspaceUnauthorizedResponse();
+  }
+  if (!canManageWorkspace(authentication.workspace.role)) {
+    return workspaceForbiddenResponse();
   }
 
   try {
     const { tokenId } = await params;
-    const revoked = await revokeRecorderToken(z.uuid().parse(tokenId));
+    const revoked = await revokeRecorderToken(
+      authentication.workspace.id,
+      z.uuid().parse(tokenId),
+    );
     return revoked
       ? new Response(null, { status: 204 })
       : Response.json(

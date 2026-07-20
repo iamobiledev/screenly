@@ -4,14 +4,16 @@ import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/login-form";
 import {
+  getSessionAuth,
   SESSION_COOKIE_NAME,
-  verifySessionToken,
 } from "@/lib/session";
 
 export default async function LoginPage() {
   const cookieStore = await cookies();
 
-  if (verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value)) {
+  if (
+    await getSessionAuth(cookieStore.get(SESSION_COOKIE_NAME)?.value)
+  ) {
     redirect("/library");
   }
 
@@ -26,7 +28,7 @@ export default async function LoginPage() {
       <section className="login-card">
         <p className="eyebrow">Team access</p>
         <h1>Open your library</h1>
-        <p>Use the shared workspace password provided by your team admin.</p>
+        <p>Sign in with the account created from your workspace invitation.</p>
         <LoginForm />
       </section>
     </main>

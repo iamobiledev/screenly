@@ -29,6 +29,7 @@ export class ObjectStorage {
         config.STORAGE_BACKEND === "gcs"
           ? false
           : config.STORAGE_FORCE_PATH_STYLE,
+      requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: config.STORAGE_ACCESS_KEY_ID,
         secretAccessKey: config.STORAGE_SECRET_ACCESS_KEY,

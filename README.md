@@ -59,6 +59,7 @@ Copy the example configuration and replace the PostgreSQL connection string:
 ```bash
 cp .env.example apps/web/.env.local
 pnpm db:migrate
+pnpm user:bootstrap
 pnpm dev
 ```
 
@@ -98,6 +99,40 @@ revoked without affecting uploaded recordings. `UPLOAD_API_TOKEN` remains as
 an optional bootstrap/recovery credential and should not be installed on team
 devices.
 
+## Users and workspaces
+
+Browser and native-device access use individual username/password accounts.
+There is no open signup: owners and admins invite users from
+`/library/members`, and invitees create an account (or authenticate their
+existing account) from the emailed link. Usernames and email addresses are
+stored normalized to lowercase. Passwords use Node.js scrypt, browser cookies
+are HMAC-signed, and native device sessions store only SHA-256 token hashes.
+
+After applying migrations, bootstrap the first owner and fixed default
+workspace:
+
+```bash
+export OWNER_USERNAME=admin
+export OWNER_EMAIL=admin@example.com
+export OWNER_PASSWORD='at-least-12-characters'
+export WORKSPACE_NAME='Screenly'
+pnpm user:bootstrap
+```
+
+The bootstrap command is idempotent and never prints the password. Configure
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `APP_URL` to deliver invitation
+emails. If Resend is not configured, invitation creation still returns a
+copyable `inviteUrl` and records failed delivery.
+
+Native clients sign in with `POST /api/auth/device/session` using
+`username`, `password`, and `deviceName`. The response contains
+`sessionToken`, `sessionExpiresAt`, `user`, `workspaces`, `activeWorkspace`,
+and a one-time `recorderToken` object. A bearer user-session token can read the
+current `user` and `workspaces` with `GET` on the same route or revoke itself
+with `DELETE`. `POST /api/auth/device/workspace` accepts `workspaceId` and
+`deviceName`, then returns `activeWorkspace` and a newly minted
+workspace-scoped `recorderToken`.
+
 ## Database changes
 
 Drizzle migrations live in `apps/web/drizzle`.
@@ -110,6 +145,10 @@ pnpm db:studio
 
 Generate migrations after editing `apps/web/src/db/schema.ts`; apply committed
 migrations during deployment before promoting a new application revision.
+The multi-workspace migration creates the fixed default workspace
+`00000000-0000-4000-8000-000000000001`, backfills every existing video and
+recorder token to it, and only then makes both workspace columns non-null.
+Video IDs, slugs, and object keys are unchanged.
 
 ## Docker
 
@@ -173,8 +212,8 @@ those S3-compatible requests.
 
 Create separate runtime service accounts for the web service and processor job.
 Grant both `roles/cloudsql.client`; grant the web identity
-`roles/run.invoker` on the processor job. Give both identities Secret Manager
-access only to the secrets they consume.
+`roles/run.jobsExecutorWithOverrides` on the processor job. Give both identities
+Secret Manager access only to the secrets they consume.
 
 Create the processor job first:
 
@@ -203,7 +242,7 @@ gcloud run deploy screenly-web \
   --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --allow-unauthenticated \
   --set-env-vars PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
-  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,WORKSPACE_PASSWORD=workspace-password:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
+  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
 ```
 
 Grant the web service account permission to execute the private job:
@@ -212,17 +251,24 @@ Grant the web service account permission to execute the private job:
 gcloud run jobs add-iam-policy-binding screenly-processor \
   --region us-central1 \
   --member serviceAccount:screenly-web@PROJECT_ID.iam.gserviceaccount.com \
-  --role roles/run.invoker
+  --role roles/run.jobsExecutorWithOverrides
 ```
 
 Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
-`UPLOAD_API_TOKEN`, workspace password, and HMAC credentials in Secret Manager.
-Apply the committed Drizzle migrations through the Cloud SQL Auth Proxy before
+`UPLOAD_API_TOKEN`, `RESEND_API_KEY`, and HMAC credentials in Secret Manager.
+Set `RESEND_FROM_EMAIL` to a verified sender. Apply the committed Drizzle
+migrations through the Cloud SQL Auth Proxy and bootstrap the first owner before
 routing traffic to a schema-dependent revision:
 
 ```bash
 cloud-sql-proxy PROJECT_ID:us-central1:screenly --port 5432
-DATABASE_URL='postgresql://screenly:PASSWORD@127.0.0.1:5432/screenly' pnpm db:migrate
+export DATABASE_URL='postgresql://screenly:PASSWORD@127.0.0.1:5432/screenly'
+pnpm db:migrate
+OWNER_USERNAME=admin \
+OWNER_EMAIL=admin@example.com \
+OWNER_PASSWORD='at-least-12-characters' \
+WORKSPACE_NAME=Screenly \
+pnpm user:bootstrap
 ```
 
 The service health endpoint is `/api/health`. Set
@@ -264,6 +310,13 @@ export MAC_APP_VERSION=1.0.0
 export MAC_BUILD_NUMBER=1
 bash apps/mac/scripts/build-release.sh
 ```
+
+For internal testing without Apple credentials, push an `internal-v*` tag such
+as `internal-v0.1.0`. The workflow creates an ad-hoc-signed DMG and preserves it
+as a GitHub Actions artifact without publishing it to the configured release
+bucket. Gatekeeper does not trust ad-hoc signatures, so users must explicitly
+approve the app with **Control-click → Open**. Use the notarized workflow above
+before distributing outside the team.
 
 The `Release macOS recorder` GitHub Actions workflow additionally imports the
 Developer ID certificate and publishes versioned and `Screenly-latest.dmg`

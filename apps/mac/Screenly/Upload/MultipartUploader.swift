@@ -24,7 +24,8 @@ actor MultipartUploader {
         var checkpoint: UploadCheckpoint
         if let existing = await checkpointStore.checkpoint(
             for: fileURL,
-            serverURL: client.baseURL
+            serverURL: client.baseURL,
+            workspaceID: client.workspaceID
         ) {
             checkpoint = existing
         } else {
@@ -37,6 +38,7 @@ actor MultipartUploader {
             checkpoint = UploadCheckpoint(
                 fileURL: fileURL,
                 serverURL: client.baseURL,
+                workspaceID: client.workspaceID,
                 initiation: initiation,
                 completedParts: [],
                 uploadedBytes: 0
@@ -126,9 +128,12 @@ actor MultipartUploader {
         return receipt
     }
 
-    func pendingFiles(for serverURL: URL) async -> [URL] {
+    func pendingFiles(for client: ScreenlyAPIClient) async -> [URL] {
         await checkpointStore.all()
-            .filter { $0.serverURL == serverURL }
+            .filter {
+                $0.serverURL == client.baseURL &&
+                    ($0.workspaceID == nil || $0.workspaceID == client.workspaceID)
+            }
             .map(\.fileURL)
             .filter { FileManager.default.fileExists(atPath: $0.path) }
     }
@@ -136,7 +141,8 @@ actor MultipartUploader {
     func discard(fileURL: URL, client: ScreenlyAPIClient) async {
         guard let checkpoint = await checkpointStore.checkpoint(
             for: fileURL,
-            serverURL: client.baseURL
+            serverURL: client.baseURL,
+            workspaceID: client.workspaceID
         ) else {
             return
         }

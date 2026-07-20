@@ -6,9 +6,11 @@ import {
 } from "@/features/auth/recorder-tokens";
 import { apiErrorResponse } from "@/lib/api";
 import {
-  isRequestAuthenticated,
+  getRequestAuth,
+  workspaceForbiddenResponse,
   workspaceUnauthorizedResponse,
 } from "@/lib/session";
+import { canManageWorkspace } from "@/features/auth/users";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,13 +20,17 @@ const createTokenSchema = z.object({
 });
 
 export async function GET(request: Request) {
-  if (!isRequestAuthenticated(request)) {
+  const authentication = await getRequestAuth(request);
+  if (!authentication) {
     return workspaceUnauthorizedResponse();
+  }
+  if (!canManageWorkspace(authentication.workspace.role)) {
+    return workspaceForbiddenResponse();
   }
 
   try {
     return Response.json(
-      { items: await listRecorderTokens() },
+      { items: await listRecorderTokens(authentication.workspace.id) },
       {
         headers: {
           "Cache-Control": "no-store",
@@ -37,13 +43,21 @@ export async function GET(request: Request) {
 }
 
 export async function POST(request: Request) {
-  if (!isRequestAuthenticated(request)) {
+  const authentication = await getRequestAuth(request);
+  if (!authentication) {
     return workspaceUnauthorizedResponse();
+  }
+  if (!canManageWorkspace(authentication.workspace.role)) {
+    return workspaceForbiddenResponse();
   }
 
   try {
     const { name } = createTokenSchema.parse(await request.json());
-    const token = await createRecorderToken(name);
+    const token = await createRecorderToken(
+      authentication.workspace.id,
+      name,
+      authentication.user.id,
+    );
     return Response.json(token, { status: 201 });
   } catch (error) {
     return apiErrorResponse(error);

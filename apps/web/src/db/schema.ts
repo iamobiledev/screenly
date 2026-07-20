@@ -4,12 +4,15 @@ import {
   integer,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
   uuid,
   varchar,
 } from "drizzle-orm/pg-core";
+
+export const DEFAULT_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 
 export const videoStatus = pgEnum("video_status", [
   "uploading",
@@ -18,10 +21,139 @@ export const videoStatus = pgEnum("video_status", [
   "failed",
 ]);
 
+export const workspaceRole = pgEnum("workspace_role", [
+  "owner",
+  "admin",
+  "member",
+]);
+
+export const invitationEmailStatus = pgEnum("invitation_email_status", [
+  "queued",
+  "sent",
+  "failed",
+]);
+
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    username: varchar("username", { length: 64 }).notNull(),
+    email: varchar("email", { length: 320 }).notNull(),
+    passwordHash: text("password_hash").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("users_username_unique").on(table.username),
+    uniqueIndex("users_email_unique").on(table.email),
+  ],
+);
+
+export const workspaces = pgTable(
+  "workspaces",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: varchar("name", { length: 120 }).notNull(),
+    slug: varchar("slug", { length: 120 }).notNull(),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [uniqueIndex("workspaces_slug_unique").on(table.slug)],
+);
+
+export const workspaceMembers = pgTable(
+  "workspace_members",
+  {
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: workspaceRole("role").notNull().default("member"),
+    joinedAt: timestamp("joined_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    primaryKey({
+      name: "workspace_members_workspace_user_pk",
+      columns: [table.workspaceId, table.userId],
+    }),
+    index("workspace_members_user_id_index").on(table.userId),
+  ],
+);
+
+export const userSessions = pgTable(
+  "user_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    deviceName: varchar("device_name", { length: 120 }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("user_sessions_token_hash_unique").on(table.tokenHash),
+    index("user_sessions_user_id_index").on(table.userId),
+    index("user_sessions_expires_at_index").on(table.expiresAt),
+  ],
+);
+
+export const workspaceInvitations = pgTable(
+  "workspace_invitations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    email: varchar("email", { length: 320 }).notNull(),
+    role: workspaceRole("role").notNull().default("member"),
+    tokenHash: varchar("token_hash", { length: 64 }).notNull(),
+    invitedByUserId: uuid("invited_by_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    resendEmailId: text("resend_email_id"),
+    emailStatus: invitationEmailStatus("email_status")
+      .notNull()
+      .default("queued"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("workspace_invitations_token_hash_unique").on(table.tokenHash),
+    index("workspace_invitations_workspace_id_index").on(table.workspaceId),
+    index("workspace_invitations_email_index").on(table.email),
+  ],
+);
+
 export const videos = pgTable(
   "videos",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "restrict" }),
     slug: varchar("slug", { length: 16 }).notNull(),
     title: varchar("title", { length: 240 }).notNull(),
     recorderName: varchar("recorder_name", { length: 120 })
@@ -58,6 +190,10 @@ export const videos = pgTable(
   (table) => [
     uniqueIndex("videos_slug_unique").on(table.slug),
     index("videos_status_created_at_index").on(table.status, table.createdAt),
+    index("videos_workspace_created_at_index").on(
+      table.workspaceId,
+      table.createdAt,
+    ),
   ],
 );
 
@@ -65,6 +201,12 @@ export const recorderTokens = pgTable(
   "recorder_tokens",
   {
     id: uuid("id").primaryKey().defaultRandom(),
+    workspaceId: uuid("workspace_id")
+      .notNull()
+      .references(() => workspaces.id, { onDelete: "cascade" }),
+    createdByUserId: uuid("created_by_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     name: varchar("name", { length: 120 }).notNull(),
     tokenPrefix: varchar("token_prefix", { length: 20 }).notNull(),
     tokenHash: varchar("token_hash", { length: 64 }).notNull(),
@@ -77,8 +219,10 @@ export const recorderTokens = pgTable(
   (table) => [
     uniqueIndex("recorder_tokens_hash_unique").on(table.tokenHash),
     index("recorder_tokens_created_at_index").on(table.createdAt),
+    index("recorder_tokens_workspace_id_index").on(table.workspaceId),
   ],
 );
 
 export type Video = typeof videos.$inferSelect;
 export type NewVideo = typeof videos.$inferInsert;
+export type WorkspaceRole = (typeof workspaceRole.enumValues)[number];

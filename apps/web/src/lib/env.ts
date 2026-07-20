@@ -1,7 +1,11 @@
 import { z } from "zod";
 
 const serverEnvSchema = z.object({
+  APP_URL: z.url().optional(),
   DATABASE_URL: z.url(),
+  RESEND_API_KEY: z.string().min(1).optional(),
+  RESEND_FROM_EMAIL: z.string().min(1).optional(),
+  SESSION_SECRET: z.string().min(32),
   STORAGE_ACCESS_KEY_ID: z.string().min(1),
   STORAGE_BACKEND: z.enum(["gcs", "s3"]).default("s3"),
   STORAGE_BUCKET: z.string().min(1),
