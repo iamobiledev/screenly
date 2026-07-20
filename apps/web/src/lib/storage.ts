@@ -23,12 +23,18 @@ function getStorageClient() {
   if (!client) {
     const env = getServerEnv();
     client = new S3Client({
-      region: env.S3_REGION,
-      endpoint: env.S3_ENDPOINT,
-      forcePathStyle: env.S3_FORCE_PATH_STYLE,
+      region: env.STORAGE_BACKEND === "gcs" ? "auto" : env.STORAGE_REGION,
+      endpoint:
+        env.STORAGE_BACKEND === "gcs"
+          ? "https://storage.googleapis.com"
+          : env.STORAGE_ENDPOINT,
+      forcePathStyle:
+        env.STORAGE_BACKEND === "gcs"
+          ? false
+          : env.STORAGE_FORCE_PATH_STYLE,
       credentials: {
-        accessKeyId: env.S3_ACCESS_KEY_ID,
-        secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+        accessKeyId: env.STORAGE_ACCESS_KEY_ID,
+        secretAccessKey: env.STORAGE_SECRET_ACCESS_KEY,
       },
     });
   }
@@ -44,7 +50,7 @@ export async function createMultipartUpload(input: {
   const env = getServerEnv();
   const result = await getStorageClient().send(
     new CreateMultipartUploadCommand({
-      Bucket: env.S3_BUCKET,
+      Bucket: env.STORAGE_BUCKET,
       Key: input.key,
       ContentType: input.contentType,
       Metadata: {
@@ -73,7 +79,7 @@ export async function signUploadParts(input: {
       url: await getSignedUrl(
         getStorageClient(),
         new UploadPartCommand({
-          Bucket: env.S3_BUCKET,
+          Bucket: env.STORAGE_BUCKET,
           Key: input.key,
           UploadId: input.uploadId,
           PartNumber: partNumber,
@@ -93,7 +99,7 @@ export async function completeMultipartUpload(input: {
 
   await getStorageClient().send(
     new CompleteMultipartUploadCommand({
-      Bucket: env.S3_BUCKET,
+      Bucket: env.STORAGE_BUCKET,
       Key: input.key,
       UploadId: input.uploadId,
       MultipartUpload: {
@@ -109,7 +115,7 @@ export async function objectExists(key: string) {
   try {
     await getStorageClient().send(
       new HeadObjectCommand({
-        Bucket: env.S3_BUCKET,
+        Bucket: env.STORAGE_BUCKET,
         Key: key,
       }),
     );
@@ -134,7 +140,7 @@ export async function abortMultipartUpload(input: {
 
   await getStorageClient().send(
     new AbortMultipartUploadCommand({
-      Bucket: env.S3_BUCKET,
+      Bucket: env.STORAGE_BUCKET,
       Key: input.key,
       UploadId: input.uploadId,
     }),
@@ -144,14 +150,14 @@ export async function abortMultipartUpload(input: {
 export async function getPlaybackUrl(key: string) {
   const env = getServerEnv();
 
-  if (env.S3_PUBLIC_BASE_URL) {
-    return `${env.S3_PUBLIC_BASE_URL.replace(/\/$/, "")}/${encodeObjectKey(key)}`;
+  if (env.STORAGE_PUBLIC_BASE_URL) {
+    return `${env.STORAGE_PUBLIC_BASE_URL.replace(/\/$/, "")}/${encodeObjectKey(key)}`;
   }
 
   return getSignedUrl(
     getStorageClient(),
     new GetObjectCommand({
-      Bucket: env.S3_BUCKET,
+      Bucket: env.STORAGE_BUCKET,
       Key: key,
     }),
     { expiresIn: PLAYBACK_URL_TTL_SECONDS },
@@ -168,7 +174,7 @@ export async function deleteObjects(keys: Array<string | null>) {
   const env = getServerEnv();
   const result = await getStorageClient().send(
     new DeleteObjectsCommand({
-      Bucket: env.S3_BUCKET,
+      Bucket: env.STORAGE_BUCKET,
       Delete: {
         Objects: objectKeys.map((Key) => ({ Key })),
         Quiet: true,
@@ -190,7 +196,7 @@ export async function deleteObjectPrefix(prefix: string) {
   do {
     const result = await getStorageClient().send(
       new ListObjectsV2Command({
-        Bucket: env.S3_BUCKET,
+        Bucket: env.STORAGE_BUCKET,
         Prefix: prefix,
         ContinuationToken: continuationToken,
       }),
