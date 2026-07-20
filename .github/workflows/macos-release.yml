@@ -33,14 +33,17 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Resolve release settings
+        id: release
         run: |
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            echo "MAC_APP_VERSION=${GITHUB_REF_NAME#internal-v}" >> "$GITHUB_ENV"
+            version="${GITHUB_REF_NAME#internal-v}"
             echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
           else
-            echo "MAC_APP_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+            version="${{ inputs.version }}"
             echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
           fi
+          echo "MAC_APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
 
       - name: Install build tools
         run: brew install xcodegen awscli
@@ -94,7 +97,7 @@ jobs:
       - name: Preserve release artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Screenly-${{ inputs.version }}
+          name: Screenly-${{ steps.release.outputs.version }}
           path: |
             apps/mac/build/release/Screenly.dmg
             apps/mac/build/release/Screenly.dmg.sha256
