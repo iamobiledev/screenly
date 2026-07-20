@@ -16,6 +16,7 @@ import { getServerEnv } from "@/lib/env";
 
 const UPLOAD_URL_TTL_SECONDS = 15 * 60;
 const PLAYBACK_URL_TTL_SECONDS = 60 * 60;
+const DOWNLOAD_URL_TTL_SECONDS = 15 * 60;
 
 let client: S3Client | undefined;
 
@@ -155,6 +156,21 @@ export async function getPlaybackUrl(key: string) {
       Key: key,
     }),
     { expiresIn: PLAYBACK_URL_TTL_SECONDS },
+  );
+}
+
+export async function getDownloadUrl(key: string, fileName: string) {
+  const env = getServerEnv();
+  const safeFileName = fileName.replace(/[^a-zA-Z0-9._-]/g, "-");
+
+  return getSignedUrl(
+    getStorageClient(),
+    new GetObjectCommand({
+      Bucket: env.S3_BUCKET,
+      Key: key,
+      ResponseContentDisposition: `attachment; filename="${safeFileName}"`,
+    }),
+    { expiresIn: DOWNLOAD_URL_TTL_SECONDS },
   );
 }
 

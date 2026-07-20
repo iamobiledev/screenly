@@ -7,6 +7,9 @@ on:
         description: Release version, for example 1.2.0
         required: true
         type: string
+  push:
+    tags:
+      - "internal-v*"
 
 permissions:
   contents: read
@@ -19,7 +22,6 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
-      MAC_APP_VERSION: ${{ inputs.version }}
       MAC_BUILD_NUMBER: ${{ github.run_number }}
       AWS_ACCESS_KEY_ID: ${{ secrets.MAC_RELEASE_S3_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.MAC_RELEASE_S3_SECRET_ACCESS_KEY }}
@@ -30,10 +32,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Resolve release settings
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            echo "MAC_APP_VERSION=${GITHUB_REF_NAME#internal-v}" >> "$GITHUB_ENV"
+            echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
+          else
+            echo "MAC_APP_VERSION=${{ inputs.version }}" >> "$GITHUB_ENV"
+            echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
+          fi
+
       - name: Install build tools
         run: brew install xcodegen awscli
 
       - name: Import Developer ID certificate
+        if: github.event_name == 'workflow_dispatch'
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -61,6 +74,7 @@ jobs:
         run: bash apps/mac/scripts/build-release.sh
 
       - name: Publish versioned and latest downloads
+        if: github.event_name == 'workflow_dispatch'
         run: |
           endpoint_args=()
           if [[ -n "${S3_ENDPOINT_URL:-}" ]]; then

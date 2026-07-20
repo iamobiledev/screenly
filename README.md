@@ -213,6 +213,13 @@ export MAC_BUILD_NUMBER=1
 bash apps/mac/scripts/build-release.sh
 ```
 
+For internal testing without Apple credentials, push an `internal-v*` tag such
+as `internal-v0.1.0`. The workflow creates an ad-hoc-signed DMG and preserves it
+as a GitHub Actions artifact without publishing it to the configured release
+bucket. Gatekeeper does not trust ad-hoc signatures, so users must explicitly
+approve the app with **Control-click → Open**. Use the notarized workflow above
+before distributing outside the team.
+
 The `Release macOS recorder` GitHub Actions workflow additionally imports the
 Developer ID certificate and publishes versioned and `Screenly-latest.dmg`
 objects to S3-compatible storage. Configure these secrets:
