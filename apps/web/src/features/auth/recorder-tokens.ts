@@ -83,6 +83,23 @@ export async function revokeRecorderToken(workspaceId: string, id: string) {
   return Boolean(record);
 }
 
+export async function revokeRecorderTokensForDevice(
+  userId: string,
+  deviceName: string,
+) {
+  return getDb()
+    .update(recorderTokens)
+    .set({ revokedAt: new Date() })
+    .where(
+      and(
+        eq(recorderTokens.createdByUserId, userId),
+        eq(recorderTokens.name, deviceName),
+        isNull(recorderTokens.revokedAt),
+      ),
+    )
+    .returning({ id: recorderTokens.id });
+}
+
 export async function authenticateRecorderToken(token: string) {
   const [record] = await getDb()
     .select({

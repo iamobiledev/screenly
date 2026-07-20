@@ -87,9 +87,13 @@ export async function revokeDeviceSession(request: Request) {
         isNull(userSessions.revokedAt),
       ),
     )
-    .returning({ id: userSessions.id });
+    .returning({
+      id: userSessions.id,
+      userId: userSessions.userId,
+      deviceName: userSessions.deviceName,
+    });
 
-  return Boolean(session);
+  return session ?? null;
 }
 
 export function hashOpaqueToken(token: string) {

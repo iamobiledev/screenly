@@ -6,7 +6,10 @@ import {
   deviceUnauthorizedResponse,
   revokeDeviceSession,
 } from "@/features/auth/device-sessions";
-import { createRecorderToken } from "@/features/auth/recorder-tokens";
+import {
+  createRecorderToken,
+  revokeRecorderTokensForDevice,
+} from "@/features/auth/recorder-tokens";
 import {
   authenticateCredentials,
   listUserWorkspaces,
@@ -74,10 +77,16 @@ export async function GET(request: Request) {
 
 export async function DELETE(request: Request) {
   try {
-    const revoked = await revokeDeviceSession(request);
-    return revoked
-      ? new Response(null, { status: 204 })
-      : deviceUnauthorizedResponse();
+    const revokedSession = await revokeDeviceSession(request);
+    if (!revokedSession) {
+      return deviceUnauthorizedResponse();
+    }
+
+    await revokeRecorderTokensForDevice(
+      revokedSession.userId,
+      revokedSession.deviceName,
+    );
+    return new Response(null, { status: 204 });
   } catch (error) {
     return apiErrorResponse(error);
   }
