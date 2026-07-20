@@ -6,7 +6,7 @@ import {
 } from "@/features/videos/library-service";
 import { apiErrorResponse } from "@/lib/api";
 import {
-  isRequestAuthenticated,
+  getRequestAuth,
   workspaceUnauthorizedResponse,
 } from "@/lib/session";
 
@@ -21,7 +21,8 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!isRequestAuthenticated(request)) {
+  const authentication = await getRequestAuth(request);
+  if (!authentication) {
     return workspaceUnauthorizedResponse();
   }
 
@@ -29,7 +30,11 @@ export async function PATCH(
     const { videoId: rawVideoId } = await params;
     const videoId = videoIdSchema.parse(rawVideoId);
     const { title } = renameSchema.parse(await request.json());
-    const video = await renameVideo(videoId, title);
+    const video = await renameVideo(
+      authentication.workspace.id,
+      videoId,
+      title,
+    );
 
     if (!video) {
       return notFoundResponse();
@@ -45,14 +50,15 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!isRequestAuthenticated(request)) {
+  const authentication = await getRequestAuth(request);
+  if (!authentication) {
     return workspaceUnauthorizedResponse();
   }
 
   try {
     const { videoId: rawVideoId } = await params;
     const videoId = videoIdSchema.parse(rawVideoId);
-    const deleted = await deleteVideo(videoId);
+    const deleted = await deleteVideo(authentication.workspace.id, videoId);
 
     return deleted ? new Response(null, { status: 204 }) : notFoundResponse();
   } catch (error) {

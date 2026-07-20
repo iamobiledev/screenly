@@ -143,7 +143,7 @@ final class CaptureEngine: NSObject, @unchecked Sendable {
                     let outputURL = finalizer.writer.outputURL
                     let error = finalizer.writer.error
                     captureQueue.async {
-                        releaseCaptureResources()
+                        self.releaseCaptureResources()
                         if status == .completed {
                             continuation.resume(returning: outputURL)
                         } else {

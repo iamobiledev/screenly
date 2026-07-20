@@ -10,6 +10,7 @@
     "typecheck": "pnpm --filter @screenly/web typecheck && pnpm --filter @screenly/worker typecheck",
     "db:generate": "pnpm --filter @screenly/web db:generate",
     "db:migrate": "pnpm --filter @screenly/web db:migrate",
-    "db:studio": "pnpm --filter @screenly/web db:studio"
+    "db:studio": "pnpm --filter @screenly/web db:studio",
+    "user:bootstrap": "pnpm --filter @screenly/web user:bootstrap"
   }
 }

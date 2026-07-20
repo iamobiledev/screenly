@@ -1,37 +1,43 @@
 import { cookies } from "next/headers";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { LibraryNav } from "@/components/library-nav";
 import { RecorderTokenManager } from "@/components/recorder-token-manager";
 import { listRecorderTokens } from "@/features/auth/recorder-tokens";
 import {
+  canManageWorkspace,
+  listUserWorkspaces,
+} from "@/features/auth/users";
+import {
+  getSessionAuth,
   SESSION_COOKIE_NAME,
-  verifySessionToken,
 } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
 export default async function RecorderTokensPage() {
   const cookieStore = await cookies();
-  if (!verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value)) {
+  const authentication = await getSessionAuth(
+    cookieStore.get(SESSION_COOKIE_NAME)?.value,
+  );
+  if (!authentication) {
     redirect("/login");
   }
+  if (!canManageWorkspace(authentication.workspace.role)) {
+    redirect("/library");
+  }
 
-  const tokens = await listRecorderTokens();
+  const [tokens, workspaces] = await Promise.all([
+    listRecorderTokens(authentication.workspace.id),
+    listUserWorkspaces(authentication.user.id),
+  ]);
 
   return (
     <main className="library-shell token-page">
-      <nav className="library-nav">
-        <Link className="brand" href="/">
-          <span className="brand-mark">
-            <span />
-          </span>
-          Screenly
-        </Link>
-        <Link className="secondary-button" href="/library">
-          Back to library
-        </Link>
-      </nav>
+      <LibraryNav
+        activeWorkspace={authentication.workspace}
+        workspaces={workspaces}
+      />
 
       <header className="library-heading">
         <div>

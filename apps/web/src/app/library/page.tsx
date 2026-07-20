@@ -1,14 +1,15 @@
 import { cookies } from "next/headers";
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { SignOutButton } from "@/components/sign-out-button";
+import { LibraryNav } from "@/components/library-nav";
 import { VideoCard } from "@/components/video-card";
 import { listLibraryVideos } from "@/features/videos/library-service";
 import {
+  getSessionAuth,
   SESSION_COOKIE_NAME,
-  verifySessionToken,
 } from "@/lib/session";
+import { listUserWorkspaces } from "@/features/auth/users";
+import Link from "next/link";
 
 export const dynamic = "force-dynamic";
 
@@ -18,33 +19,30 @@ export default async function LibraryPage({
   searchParams: Promise<{ q?: string | string[] }>;
 }) {
   const cookieStore = await cookies();
-  if (!verifySessionToken(cookieStore.get(SESSION_COOKIE_NAME)?.value)) {
+  const authentication = await getSessionAuth(
+    cookieStore.get(SESSION_COOKIE_NAME)?.value,
+  );
+  if (!authentication) {
     redirect("/login");
   }
 
   const rawQuery = (await searchParams).q;
   const query = typeof rawQuery === "string" ? rawQuery.slice(0, 120) : "";
-  const videos = await listLibraryVideos(query);
+  const [videos, workspaces] = await Promise.all([
+    listLibraryVideos(authentication.workspace.id, query),
+    listUserWorkspaces(authentication.user.id),
+  ]);
 
   return (
     <main className="library-shell">
-      <nav className="library-nav">
-        <Link className="brand" href="/">
-          <span className="brand-mark">
-            <span />
-          </span>
-          Screenly
-        </Link>
-        <div className="library-nav-actions">
-          <span>Team library</span>
-          <Link href="/library/tokens">Recorder tokens</Link>
-          <SignOutButton />
-        </div>
-      </nav>
+      <LibraryNav
+        activeWorkspace={authentication.workspace}
+        workspaces={workspaces}
+      />
 
       <header className="library-heading">
         <div>
-          <p className="eyebrow">Workspace</p>
+          <p className="eyebrow">{authentication.workspace.name}</p>
           <h1>Team recordings</h1>
         </div>
         <form className="search-form">

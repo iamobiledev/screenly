@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { getDb } from "@/db";
@@ -27,7 +27,8 @@ export async function POST(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!(await authenticateUploadRequest(request))) {
+  const authentication = await authenticateUploadRequest(request);
+  if (!authentication) {
     return unauthorizedResponse();
   }
 
@@ -41,7 +42,12 @@ export async function POST(
         multipartUploadId: videos.multipartUploadId,
       })
       .from(videos)
-      .where(eq(videos.id, videoId))
+      .where(
+        and(
+          eq(videos.id, videoId),
+          eq(videos.workspaceId, authentication.workspaceId),
+        ),
+      )
       .limit(1);
 
     if (!video) {

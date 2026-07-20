@@ -506,6 +506,16 @@ a {
   font-size: 13px;
 }
 
+.library-nav-actions select {
+  max-width: 190px;
+  padding: 7px 9px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  color: var(--foreground);
+  background: var(--surface);
+  font: inherit;
+}
+
 .text-button,
 .video-card-actions button,
 .delete-confirmation button,
@@ -891,6 +901,62 @@ a {
   text-align: center;
 }
 
+.member-manager {
+  overflow: hidden;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--surface);
+  transition: opacity 150ms ease;
+}
+
+.member-manager.is-pending {
+  opacity: 0.65;
+}
+
+.invite-form {
+  display: grid;
+  gap: 10px;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+  grid-template-columns: minmax(0, 1fr) 140px auto;
+}
+
+.invite-form input,
+.invite-form select {
+  min-height: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--line);
+  border-radius: 9px;
+  background: #fbfbfa;
+  outline: none;
+  font: inherit;
+}
+
+.invite-form .primary-button {
+  border: 0;
+  cursor: pointer;
+}
+
+.member-manager > .form-error {
+  margin: 14px 20px;
+}
+
+.access-section + .access-section {
+  border-top: 1px solid var(--line);
+}
+
+.access-section h2 {
+  margin: 0;
+  padding: 20px;
+  border-bottom: 1px solid var(--line);
+  font-size: 15px;
+}
+
+.access-section > .token-row > span {
+  margin: 0;
+  text-transform: capitalize;
+}
+
 .download-shell {
   width: min(920px, calc(100% - 48px));
   min-height: 100vh;
@@ -1073,9 +1139,14 @@ a {
   }
 
   .token-create-form,
+  .invite-form,
   .token-row {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .invite-form {
+    display: flex;
   }
 
   .token-create-form input {

@@ -31,7 +31,7 @@ final class RecordingController: ObservableObject {
         }
         guard makeClient() != nil else {
             state = .failed(
-                message: "Add your server URL and API token in Settings."
+                message: "Sign in or add a server and recorder token in Settings."
             )
             return
         }
@@ -171,7 +171,7 @@ final class RecordingController: ObservableObject {
 
         Task { [weak self] in
             guard let self else { return }
-            let files = await uploader.pendingFiles(for: client.baseURL)
+            let files = await uploader.pendingFiles(for: client)
             guard let file = files.first else { return }
             currentFileURL = file
             beginUpload(fileURL: file)
@@ -219,16 +219,20 @@ final class RecordingController: ObservableObject {
     private func makeClient() -> ScreenlyAPIClient? {
         guard let baseURL = URL(string: settings.serverURL),
               ["http", "https"].contains(baseURL.scheme?.lowercased()),
+              let host = baseURL.host?.lowercased(),
+              !host.isEmpty,
               !settings.apiToken.isEmpty else {
             return nil
         }
         if baseURL.scheme?.lowercased() == "http",
-           !["localhost", "127.0.0.1", "::1"].contains(
-               baseURL.host?.lowercased() ?? ""
-           ) {
+           !["localhost", "127.0.0.1", "::1"].contains(host) {
             return nil
         }
-        return ScreenlyAPIClient(baseURL: baseURL, token: settings.apiToken)
+        return ScreenlyAPIClient(
+            baseURL: baseURL,
+            token: settings.apiToken,
+            workspaceID: settings.activeWorkspaceID
+        )
     }
 
     private func makeRecordingURL() throws -> URL {

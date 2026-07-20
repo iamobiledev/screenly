@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-required_variables=(
-  APPLE_ID
-  APPLE_APP_PASSWORD
-  APPLE_TEAM_ID
-)
+unsigned_build="${MAC_UNSIGNED_BUILD:-false}"
 
-for variable in "${required_variables[@]}"; do
-  if [[ -z "${!variable:-}" ]]; then
-    echo "Missing required environment variable: ${variable}" >&2
-    exit 1
-  fi
-done
+if [[ "${unsigned_build}" != "true" ]]; then
+  required_variables=(
+    APPLE_ID
+    APPLE_APP_PASSWORD
+    APPLE_TEAM_ID
+  )
+
+  for variable in "${required_variables[@]}"; do
+    if [[ -z "${!variable:-}" ]]; then
+      echo "Missing required environment variable: ${variable}" >&2
+      exit 1
+    fi
+  done
+fi
 
 command -v xcodegen >/dev/null || {
   echo "XcodeGen is required: brew install xcodegen" >&2
@@ -34,19 +38,43 @@ mkdir -p "${staging_directory}"
 cd "${project_directory}"
 xcodegen generate
 
-xcodebuild \
-  -project Screenly.xcodeproj \
-  -scheme Screenly \
-  -configuration Release \
-  -archivePath "${archive_path}" \
-  archive \
-  DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
-  MARKETING_VERSION="${marketing_version}" \
-  CURRENT_PROJECT_VERSION="${build_number}" \
-  CODE_SIGN_STYLE=Manual \
-  CODE_SIGN_IDENTITY="Developer ID Application"
+if [[ "${unsigned_build}" == "true" ]]; then
+  xcodebuild \
+    -project Screenly.xcodeproj \
+    -scheme Screenly \
+    -configuration Release \
+    -archivePath "${archive_path}" \
+    archive \
+    MARKETING_VERSION="${marketing_version}" \
+    CURRENT_PROJECT_VERSION="${build_number}" \
+    CODE_SIGNING_ALLOWED=NO \
+    CODE_SIGNING_REQUIRED=NO
+else
+  xcodebuild \
+    -project Screenly.xcodeproj \
+    -scheme Screenly \
+    -configuration Release \
+    -archivePath "${archive_path}" \
+    archive \
+    DEVELOPMENT_TEAM="${APPLE_TEAM_ID}" \
+    MARKETING_VERSION="${marketing_version}" \
+    CURRENT_PROJECT_VERSION="${build_number}" \
+    CODE_SIGN_STYLE=Manual \
+    CODE_SIGN_IDENTITY="Developer ID Application"
+fi
 
 application_path="${archive_path}/Products/Applications/Screenly.app"
+
+if [[ "${unsigned_build}" == "true" ]]; then
+  codesign \
+    --force \
+    --deep \
+    --options runtime \
+    --sign - \
+    --entitlements "${project_directory}/Screenly/Resources/Screenly.entitlements" \
+    "${application_path}"
+fi
+
 codesign --verify --deep --strict --verbose=2 "${application_path}"
 
 ditto "${application_path}" "${staging_directory}/Screenly.app"
@@ -59,20 +87,23 @@ hdiutil create \
   -format UDZO \
   "${output_path}"
 
-codesign \
-  --force \
-  --timestamp \
-  --sign "Developer ID Application" \
-  "${output_path}"
+if [[ "${unsigned_build}" != "true" ]]; then
+  codesign \
+    --force \
+    --timestamp \
+    --sign "Developer ID Application" \
+    "${output_path}"
 
-xcrun notarytool submit "${output_path}" \
-  --apple-id "${APPLE_ID}" \
-  --password "${APPLE_APP_PASSWORD}" \
-  --team-id "${APPLE_TEAM_ID}" \
-  --wait
+  xcrun notarytool submit "${output_path}" \
+    --apple-id "${APPLE_ID}" \
+    --password "${APPLE_APP_PASSWORD}" \
+    --team-id "${APPLE_TEAM_ID}" \
+    --wait
 
-xcrun stapler staple "${output_path}"
-xcrun stapler validate "${output_path}"
+  xcrun stapler staple "${output_path}"
+  xcrun stapler validate "${output_path}"
+fi
+
 shasum -a 256 "${output_path}" | tee "${output_path}.sha256"
 
 echo "Release ready: ${output_path}"

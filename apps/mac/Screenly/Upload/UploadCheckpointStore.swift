@@ -3,6 +3,7 @@ import Foundation
 struct UploadCheckpoint: Codable, Sendable {
     let fileURL: URL
     let serverURL: URL
+    let workspaceID: String?
     let initiation: InitiateUploadResponse
     var completedParts: [CompletedUploadPart]
     var uploadedBytes: Int
@@ -29,10 +30,13 @@ actor UploadCheckpointStore {
 
     func checkpoint(
         for fileURL: URL,
-        serverURL: URL
+        serverURL: URL,
+        workspaceID: String?
     ) -> UploadCheckpoint? {
         all().first {
-            $0.fileURL == fileURL && $0.serverURL == serverURL
+            $0.fileURL == fileURL &&
+                $0.serverURL == serverURL &&
+                ($0.workspaceID == nil || $0.workspaceID == workspaceID)
         }
     }
 

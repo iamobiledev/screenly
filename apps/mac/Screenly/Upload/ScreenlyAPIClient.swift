@@ -4,11 +4,18 @@ import UniformTypeIdentifiers
 struct ScreenlyAPIClient: Sendable {
     let baseURL: URL
     let token: String
+    let workspaceID: String?
     private let session: URLSession
 
-    init(baseURL: URL, token: String, session: URLSession = .shared) {
+    init(
+        baseURL: URL,
+        token: String,
+        workspaceID: String? = nil,
+        session: URLSession = .shared
+    ) {
         self.baseURL = baseURL
         self.token = token
+        self.workspaceID = workspaceID
         self.session = session
     }
 

@@ -17,7 +17,10 @@ export function LoginForm() {
     const response = await fetch("/api/auth/session", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ password: form.get("password") }),
+      body: JSON.stringify({
+        username: form.get("username"),
+        password: form.get("password"),
+      }),
     });
 
     if (!response.ok) {
@@ -35,12 +38,22 @@ export function LoginForm() {
 
   return (
     <form className="login-form" onSubmit={submit}>
-      <label htmlFor="password">Workspace password</label>
+      <label htmlFor="username">Username</label>
+      <input
+        autoCapitalize="none"
+        autoComplete="username"
+        autoCorrect="off"
+        id="username"
+        name="username"
+        placeholder="Your username"
+        required
+      />
+      <label htmlFor="password">Password</label>
       <input
         autoComplete="current-password"
         id="password"
         name="password"
-        placeholder="Enter your team password"
+        placeholder="Your password"
         required
         type="password"
       />

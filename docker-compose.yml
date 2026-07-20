@@ -15,7 +15,8 @@ services:
       S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:-screenly-local-development-secret}
       SESSION_SECRET: ${SESSION_SECRET:-screenly-local-session-secret-change-me}
       UPLOAD_API_TOKEN: ${UPLOAD_API_TOKEN:-screenly-local-upload-token-change-me}
-      WORKSPACE_PASSWORD: ${WORKSPACE_PASSWORD:-screenly-local-password}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      RESEND_FROM_EMAIL: ${RESEND_FROM_EMAIL:-}
     ports:
       - "3000:3000"
     depends_on:

@@ -1,4 +1,4 @@
-import { desc, eq, ilike } from "drizzle-orm";
+import { and, desc, eq, ilike } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { videos } from "@/db/schema";
@@ -10,7 +10,7 @@ import {
 
 const LIBRARY_PAGE_SIZE = 50;
 
-export async function listLibraryVideos(query?: string) {
+export async function listLibraryVideos(workspaceId: string, query?: string) {
   const normalizedQuery = query?.trim();
   const rows = await getDb()
     .select({
@@ -26,9 +26,12 @@ export async function listLibraryVideos(query?: string) {
     })
     .from(videos)
     .where(
-      normalizedQuery
-        ? ilike(videos.title, `%${normalizedQuery.replaceAll("%", "\\%")}%`)
-        : undefined,
+      and(
+        eq(videos.workspaceId, workspaceId),
+        normalizedQuery
+          ? ilike(videos.title, `%${normalizedQuery.replaceAll("%", "\\%")}%`)
+          : undefined,
+      ),
     )
     .orderBy(desc(videos.createdAt))
     .limit(LIBRARY_PAGE_SIZE);
@@ -45,14 +48,20 @@ export async function listLibraryVideos(query?: string) {
   );
 }
 
-export async function renameVideo(videoId: string, title: string) {
+export async function renameVideo(
+  workspaceId: string,
+  videoId: string,
+  title: string,
+) {
   const [video] = await getDb()
     .update(videos)
     .set({
       title,
       updatedAt: new Date(),
     })
-    .where(eq(videos.id, videoId))
+    .where(
+      and(eq(videos.id, videoId), eq(videos.workspaceId, workspaceId)),
+    )
     .returning({
       id: videos.id,
       title: videos.title,
@@ -61,11 +70,13 @@ export async function renameVideo(videoId: string, title: string) {
   return video ?? null;
 }
 
-export async function deleteVideo(videoId: string) {
+export async function deleteVideo(workspaceId: string, videoId: string) {
   const [video] = await getDb()
     .select()
     .from(videos)
-    .where(eq(videos.id, videoId))
+    .where(
+      and(eq(videos.id, videoId), eq(videos.workspaceId, workspaceId)),
+    )
     .limit(1);
 
   if (!video) {
@@ -76,6 +87,10 @@ export async function deleteVideo(videoId: string) {
     deleteObjects([video.sourceObjectKey]),
     deleteObjectPrefix(`processed/${video.id}/`),
   ]);
-  await getDb().delete(videos).where(eq(videos.id, video.id));
+  await getDb()
+    .delete(videos)
+    .where(
+      and(eq(videos.id, video.id), eq(videos.workspaceId, workspaceId)),
+    );
   return true;
 }
