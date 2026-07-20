@@ -168,7 +168,7 @@ Grant the web service account permission to execute the private job:
 gcloud run jobs add-iam-policy-binding screenly-processor \
   --region us-central1 \
   --member serviceAccount:SCREENLY_WEB_SERVICE_ACCOUNT \
-  --role roles/run.invoker
+  --role roles/run.jobsExecutorWithOverrides
 ```
 
 Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
