@@ -5,17 +5,18 @@ const serverEnvSchema = z.object({
   DATABASE_URL: z.url(),
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(1).optional(),
-  S3_ACCESS_KEY_ID: z.string().min(1),
-  S3_BUCKET: z.string().min(1),
-  S3_ENDPOINT: z.url().optional(),
-  S3_FORCE_PATH_STYLE: z
+  SESSION_SECRET: z.string().min(32),
+  STORAGE_ACCESS_KEY_ID: z.string().min(1),
+  STORAGE_BACKEND: z.enum(["gcs", "s3"]).default("s3"),
+  STORAGE_BUCKET: z.string().min(1),
+  STORAGE_ENDPOINT: z.url().optional(),
+  STORAGE_FORCE_PATH_STYLE: z
     .enum(["true", "false"])
     .default("false")
     .transform((value) => value === "true"),
-  S3_PUBLIC_BASE_URL: z.url().optional(),
-  S3_REGION: z.string().min(1).default("auto"),
-  S3_SECRET_ACCESS_KEY: z.string().min(1),
-  SESSION_SECRET: z.string().min(32),
+  STORAGE_PUBLIC_BASE_URL: z.url().optional(),
+  STORAGE_REGION: z.string().min(1).default("auto"),
+  STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
   UPLOAD_API_TOKEN: z.string().min(32).optional(),
 });
 

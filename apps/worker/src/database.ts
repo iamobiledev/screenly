@@ -1,4 +1,4 @@
-import { neon } from "@neondatabase/serverless";
+import postgres, { type Sql } from "postgres";
 
 import type { WorkerConfig } from "./config.js";
 
@@ -9,10 +9,18 @@ export type VideoJob = {
 };
 
 export class VideoRepository {
-  private readonly sql;
+  private readonly sql: Sql;
 
   constructor(config: WorkerConfig) {
-    this.sql = neon(config.DATABASE_URL);
+    this.sql = postgres(config.DATABASE_URL, {
+      max: 1,
+      ...(config.CLOUD_SQL_INSTANCE
+        ? {
+            path: `/cloudsql/${config.CLOUD_SQL_INSTANCE}/.s.PGSQL.5432`,
+            ssl: false,
+          }
+        : {}),
+    });
   }
 
   async claim(videoID: string, leaseID: string) {
@@ -82,5 +90,9 @@ export class VideoRepository {
       where id = ${videoID}::uuid
         and processing_lease_id = ${leaseID}::uuid
     `;
+  }
+
+  async close() {
+    await this.sql.end({ timeout: 5 });
   }
 }

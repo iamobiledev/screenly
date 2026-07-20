@@ -17,15 +17,22 @@ export class ObjectStorage {
   private readonly client: S3Client;
 
   constructor(config: WorkerConfig) {
-    this.bucket = config.S3_BUCKET;
+    this.bucket = config.STORAGE_BUCKET;
     this.client = new S3Client({
-      region: config.S3_REGION,
-      endpoint: config.S3_ENDPOINT,
-      forcePathStyle: config.S3_FORCE_PATH_STYLE,
+      region:
+        config.STORAGE_BACKEND === "gcs" ? "auto" : config.STORAGE_REGION,
+      endpoint:
+        config.STORAGE_BACKEND === "gcs"
+          ? "https://storage.googleapis.com"
+          : config.STORAGE_ENDPOINT,
+      forcePathStyle:
+        config.STORAGE_BACKEND === "gcs"
+          ? false
+          : config.STORAGE_FORCE_PATH_STYLE,
       requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: {
-        accessKeyId: config.S3_ACCESS_KEY_ID,
-        secretAccessKey: config.S3_SECRET_ACCESS_KEY,
+        accessKeyId: config.STORAGE_ACCESS_KEY_ID,
+        secretAccessKey: config.STORAGE_SECRET_ACCESS_KEY,
       },
     });
   }

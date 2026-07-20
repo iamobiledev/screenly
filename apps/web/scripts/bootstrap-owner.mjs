@@ -1,6 +1,6 @@
 import { randomBytes, scrypt } from "node:crypto";
 
-import { neon } from "@neondatabase/serverless";
+import postgres from "postgres";
 
 const DEFAULT_WORKSPACE_ID = "00000000-0000-4000-8000-000000000001";
 const SCRYPT_N = 16_384;
@@ -28,7 +28,16 @@ if (!workspaceName || workspaceName.length > 120) {
   throw new Error("WORKSPACE_NAME must contain 1–120 characters.");
 }
 
-const sql = neon(databaseUrl);
+const cloudSqlInstance = process.env.CLOUD_SQL_INSTANCE;
+const sql = postgres(databaseUrl, {
+  max: 1,
+  ...(cloudSqlInstance
+    ? {
+        path: `/cloudsql/${cloudSqlInstance}/.s.PGSQL.5432`,
+        ssl: false,
+      }
+    : {}),
+});
 const passwordHash = await hashPassword(password);
 const matches = await sql`
   select id, username, email
@@ -88,6 +97,8 @@ await sql`
   on conflict (workspace_id, user_id) do update
   set role = 'owner'
 `;
+
+await sql.end({ timeout: 5 });
 
 console.log(
   `Owner ${username} is ready in workspace ${workspaceName} (${DEFAULT_WORKSPACE_ID}).`,

@@ -1,5 +1,5 @@
-import { neon } from "@neondatabase/serverless";
-import { drizzle } from "drizzle-orm/neon-http";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 
 import * as schema from "./schema";
 
@@ -10,7 +10,23 @@ function createDatabase() {
     throw new Error("DATABASE_URL is required for database access.");
   }
 
-  return drizzle(neon(databaseUrl), { schema });
+  const cloudSqlInstance = process.env.CLOUD_SQL_INSTANCE;
+  const maxConnections = Number(process.env.DATABASE_MAX_CONNECTIONS ?? "5");
+  if (!Number.isInteger(maxConnections) || maxConnections < 1) {
+    throw new Error("DATABASE_MAX_CONNECTIONS must be a positive integer.");
+  }
+
+  const client = postgres(databaseUrl, {
+    max: maxConnections,
+    ...(cloudSqlInstance
+      ? {
+          path: `/cloudsql/${cloudSqlInstance}/.s.PGSQL.5432`,
+          ssl: false,
+        }
+      : {}),
+  });
+
+  return drizzle(client, { schema });
 }
 
 let database: ReturnType<typeof createDatabase> | undefined;

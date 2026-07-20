@@ -22,15 +22,17 @@ apps/
 Production is designed around:
 
 - **Cloud Run service:** public Next.js viewer and authenticated upload API
-- **Neon:** PostgreSQL metadata
-- **S3-compatible storage:** source recordings and processed media
+- **Cloud SQL for PostgreSQL:** video metadata, tokens, and processing leases
+- **Cloud Storage:** source recordings and processed media
 - **Cloud Run Job:** isolated ffmpeg processing, triggered after upload
 - **macOS distribution:** signed and notarized universal DMG from the web
   application’s download page
 
 No recording bytes pass through the Next.js service. The API creates a video
 record and share slug, then issues short-lived presigned multipart URLs so the
-Mac app uploads directly to object storage.
+Mac app uploads directly to Cloud Storage. The storage integration uses Cloud
+Storage's S3-compatible XML API and HMAC credentials, preserving the recorder's
+resumable multipart protocol.
 
 The recorder writes microphone and system audio as separate source tracks.
 The processing job mixes them into one AAC track for consistent browser
@@ -42,7 +44,7 @@ Requirements:
 
 - Node.js 22 or newer
 - pnpm 11 through Corepack
-- A Neon database for upload API development
+- PostgreSQL or a Cloud SQL instance reached through the Cloud SQL Auth Proxy
 - Docker, if using the included local MinIO object store
 
 Install dependencies:
@@ -52,7 +54,7 @@ corepack enable
 pnpm install
 ```
 
-Copy the example configuration and replace the Neon connection string:
+Copy the example configuration and replace the PostgreSQL connection string:
 
 ```bash
 cp .env.example apps/web/.env.local
@@ -92,7 +94,7 @@ The resumable flow is:
 An active multipart upload can be discarded with
 `DELETE /api/uploads/:videoId`. The public viewer is `/v/:slug`.
 
-Only SHA-256 token hashes are stored in Neon. Tokens can be independently
+Only SHA-256 token hashes are stored in PostgreSQL. Tokens can be independently
 revoked without affecting uploaded recordings. `UPLOAD_API_TOKEN` remains as
 an optional bootstrap/recovery credential and should not be installed on team
 devices.
@@ -157,7 +159,8 @@ docker compose up --build
 ```
 
 The web image is a non-root, Next.js standalone production image. The Compose
-stack includes MinIO for development but intentionally does not emulate Neon.
+stack includes PostgreSQL and MinIO for development. On a new PostgreSQL volume,
+the committed migrations run in file-name order during database initialization.
 
 To process one uploaded video locally, install ffmpeg or run the worker profile:
 
@@ -165,28 +168,66 @@ To process one uploaded video locally, install ffmpeg or run the worker profile:
 VIDEO_ID=<database-video-uuid> docker compose --profile processor run --rm worker
 ```
 
-## Google Cloud Run
+## Google Cloud
+
+The production runtime uses Cloud Run, Cloud SQL for PostgreSQL, Cloud Storage,
+Artifact Registry, Secret Manager, and a Cloud Run Job. Enable their APIs:
+
+```bash
+gcloud services enable \
+  artifactregistry.googleapis.com \
+  cloudbuild.googleapis.com \
+  run.googleapis.com \
+  sqladmin.googleapis.com \
+  secretmanager.googleapis.com \
+  storage.googleapis.com
+```
 
 Create an Artifact Registry Docker repository named `screenly`, then build and
 push both images with Cloud Build:
 
 ```bash
+gcloud artifacts repositories create screenly \
+  --repository-format docker \
+  --location us-central1
+
 gcloud builds submit \
   --config cloudbuild.yaml \
   --substitutions=_WEB_IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/screenly/web,_WORKER_IMAGE=us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker
 ```
 
-Create the processor job first. Map `DATABASE_URL` and S3 credentials from
-Secret Manager in a real deployment:
+Create a Cloud SQL for PostgreSQL instance, database, and password-based
+application user. `DATABASE_URL` carries the database name and credentials;
+`CLOUD_SQL_INSTANCE` makes the app replace its URL host with Cloud Run's Unix
+socket. URL-encode the password before placing it in the URL.
+
+Create a private Cloud Storage bucket with uniform bucket-level access. The
+recorder's direct multipart uploads use the Cloud Storage XML API, so create an
+HMAC key for a dedicated storage service account with
+`roles/storage.objectAdmin` on only that bucket. Store the HMAC access ID and
+secret in Secret Manager as `storage-access-key-id` and
+`storage-secret-access-key`. HMAC credentials are required for the current
+presigned multipart protocol; Cloud Run's attached identity alone cannot sign
+those S3-compatible requests.
+
+Create separate runtime service accounts for the web service and processor job.
+Grant both `roles/cloudsql.client`; grant the web identity
+`roles/run.jobsExecutorWithOverrides` on the processor job. Give both identities
+Secret Manager access only to the secrets they consume.
+
+Create the processor job first:
 
 ```bash
 gcloud run jobs deploy screenly-processor \
   --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker:latest \
   --region us-central1 \
+  --service-account screenly-processor@PROJECT_ID.iam.gserviceaccount.com \
+  --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --tasks 1 \
   --max-retries 3 \
   --task-timeout 3600s \
-  --set-env-vars S3_REGION=us-east-1,S3_BUCKET=screenly,HLS_THRESHOLD_SECONDS=1200
+  --set-env-vars CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
+  --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
 ```
 
 Deploy the web image as an unauthenticated service so possession of a share
@@ -197,8 +238,11 @@ gcloud run deploy screenly-web \
   --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/web:latest \
   --region us-central1 \
   --port 3000 \
+  --service-account screenly-web@PROJECT_ID.iam.gserviceaccount.com \
+  --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --allow-unauthenticated \
-  --set-env-vars PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor
+  --set-env-vars PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
+  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
 ```
 
 Grant the web service account permission to execute the private job:
@@ -206,16 +250,30 @@ Grant the web service account permission to execute the private job:
 ```bash
 gcloud run jobs add-iam-policy-binding screenly-processor \
   --region us-central1 \
-  --member serviceAccount:SCREENLY_WEB_SERVICE_ACCOUNT \
+  --member serviceAccount:screenly-web@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/run.jobsExecutorWithOverrides
 ```
 
-Store `DATABASE_URL`, `SESSION_SECRET`, optional `UPLOAD_API_TOKEN`,
-`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and object-store credentials in Google
-Secret Manager. Apply the committed Drizzle migrations and run
-`pnpm user:bootstrap` with owner variables before routing traffic to the new
-schema-dependent revision. `UPLOAD_API_TOKEN` is restricted to the fixed
-default workspace. The service health endpoint is `/api/health`.
+Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
+`UPLOAD_API_TOKEN`, `RESEND_API_KEY`, and HMAC credentials in Secret Manager.
+Set `RESEND_FROM_EMAIL` to a verified sender. Apply the committed Drizzle
+migrations through the Cloud SQL Auth Proxy and bootstrap the first owner before
+routing traffic to a schema-dependent revision:
+
+```bash
+cloud-sql-proxy PROJECT_ID:us-central1:screenly --port 5432
+export DATABASE_URL='postgresql://screenly:PASSWORD@127.0.0.1:5432/screenly'
+pnpm db:migrate
+OWNER_USERNAME=admin \
+OWNER_EMAIL=admin@example.com \
+OWNER_PASSWORD='at-least-12-characters' \
+WORKSPACE_NAME=Screenly \
+pnpm user:bootstrap
+```
+
+The service health endpoint is `/api/health`. Set
+`DATABASE_MAX_CONNECTIONS` conservatively per Cloud Run instance (the default
+is 5); the processor job always uses one connection.
 
 Each job receives one `VIDEO_ID` override from the web service. A database
 lease prevents duplicate Cloud Run executions from processing the same video.
@@ -262,17 +320,19 @@ before distributing outside the team.
 
 The `Release macOS recorder` GitHub Actions workflow additionally imports the
 Developer ID certificate and publishes versioned and `Screenly-latest.dmg`
-objects to S3-compatible storage. Configure these secrets:
+objects to S3-compatible storage, including Cloud Storage's XML API. Configure
+these secrets:
 
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
 - `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
-- `MAC_RELEASE_S3_ACCESS_KEY_ID`, `MAC_RELEASE_S3_SECRET_ACCESS_KEY`
+- `MAC_RELEASE_STORAGE_ACCESS_KEY_ID`, `MAC_RELEASE_STORAGE_SECRET_ACCESS_KEY`
 
-Configure repository variables `MAC_RELEASE_S3_URI`,
-`MAC_RELEASE_S3_REGION`, and optional `MAC_RELEASE_S3_ENDPOINT`. Finally set
-`MAC_APP_DOWNLOAD_URL`, `MAC_APP_VERSION`, and `MAC_APP_SHA256` on the web
-service. `/download` and `/api/releases/macos/latest` then expose the signed
-build.
+Configure repository variables `MAC_RELEASE_STORAGE_URI`,
+`MAC_RELEASE_STORAGE_REGION`, and optional `MAC_RELEASE_STORAGE_ENDPOINT`.
+For Cloud Storage use an `s3://BUCKET/releases` URI, region `auto`, and endpoint
+`https://storage.googleapis.com`. Finally set `MAC_APP_DOWNLOAD_URL`,
+`MAC_APP_VERSION`, and `MAC_APP_SHA256` on the web service. `/download` and
+`/api/releases/macos/latest` then expose the signed build.
 
 ## Current verification commands
 

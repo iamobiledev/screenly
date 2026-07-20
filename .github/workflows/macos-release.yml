@@ -23,11 +23,11 @@ jobs:
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
       MAC_BUILD_NUMBER: ${{ github.run_number }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.MAC_RELEASE_S3_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.MAC_RELEASE_S3_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ vars.MAC_RELEASE_S3_REGION }}
-      MAC_RELEASE_S3_URI: ${{ vars.MAC_RELEASE_S3_URI }}
-      S3_ENDPOINT_URL: ${{ vars.MAC_RELEASE_S3_ENDPOINT }}
+      AWS_ACCESS_KEY_ID: ${{ secrets.MAC_RELEASE_STORAGE_ACCESS_KEY_ID }}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.MAC_RELEASE_STORAGE_SECRET_ACCESS_KEY }}
+      AWS_DEFAULT_REGION: ${{ vars.MAC_RELEASE_STORAGE_REGION }}
+      MAC_RELEASE_STORAGE_URI: ${{ vars.MAC_RELEASE_STORAGE_URI }}
+      STORAGE_ENDPOINT_URL: ${{ vars.MAC_RELEASE_STORAGE_ENDPOINT }}
 
     steps:
       - uses: actions/checkout@v4
@@ -80,19 +80,19 @@ jobs:
         if: github.event_name == 'workflow_dispatch'
         run: |
           endpoint_args=()
-          if [[ -n "${S3_ENDPOINT_URL:-}" ]]; then
-            endpoint_args+=(--endpoint-url "$S3_ENDPOINT_URL")
+          if [[ -n "${STORAGE_ENDPOINT_URL:-}" ]]; then
+            endpoint_args+=(--endpoint-url "$STORAGE_ENDPOINT_URL")
           fi
           release_dir="apps/mac/build/release"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_S3_URI/Screenly-$MAC_APP_VERSION.dmg"
+            "$MAC_RELEASE_STORAGE_URI/Screenly-$MAC_APP_VERSION.dmg"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_S3_URI/Screenly-latest.dmg"
+            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg.sha256" \
-            "$MAC_RELEASE_S3_URI/Screenly-latest.dmg.sha256"
+            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg.sha256"
 
       - name: Preserve release artifact
         uses: actions/upload-artifact@v4
