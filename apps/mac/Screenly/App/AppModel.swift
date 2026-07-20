@@ -3,7 +3,7 @@ import Foundation
 
 @MainActor
 final class AppModel: ObservableObject {
-    let settings: RecorderSettings
+    var settings: RecorderSettings
     let permissions: PermissionManager
     let recorder: RecordingController
 
