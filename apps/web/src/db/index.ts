@@ -19,7 +19,10 @@ function createDatabase() {
   const client = postgres(databaseUrl, {
     max: maxConnections,
     ...(cloudSqlInstance
-      ? { host: `/cloudsql/${cloudSqlInstance}`, ssl: false }
+      ? {
+          path: `/cloudsql/${cloudSqlInstance}/.s.PGSQL.5432`,
+          ssl: false,
+        }
       : {}),
   });
 

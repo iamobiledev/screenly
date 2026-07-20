@@ -15,7 +15,10 @@ export class VideoRepository {
     this.sql = postgres(config.DATABASE_URL, {
       max: 1,
       ...(config.CLOUD_SQL_INSTANCE
-        ? { host: `/cloudsql/${config.CLOUD_SQL_INSTANCE}`, ssl: false }
+        ? {
+            path: `/cloudsql/${config.CLOUD_SQL_INSTANCE}/.s.PGSQL.5432`,
+            ssl: false,
+          }
         : {}),
     });
   }
