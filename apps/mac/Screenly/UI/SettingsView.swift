@@ -3,26 +3,17 @@ import SwiftUI
 
 struct SettingsView: View {
     @ObservedObject var appModel: AppModel
+    @State private var manualServerURL = ""
+    @State private var manualAPIToken = ""
 
     var body: some View {
         Form {
-            Section("Workspace") {
-                TextField(
-                    "Server URL",
-                    text: $appModel.settings.serverURL,
-                    prompt: Text("https://video.example.com")
-                )
-                SecureField(
-                    "Recorder API token",
-                    text: $appModel.settings.apiToken
-                )
+            Section("Account & workspace") {
+                AuthenticationView(appModel: appModel)
                 TextField(
                     "Your display name",
                     text: $appModel.settings.recorderName
                 )
-                Text("The API token is stored in the macOS Keychain.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
             }
 
             Section("Recording defaults") {
@@ -97,12 +88,52 @@ struct SettingsView: View {
                     }
                 }
             }
+
+            Section("Advanced") {
+                DisclosureGroup("Manual server configuration") {
+                    VStack(alignment: .leading, spacing: 10) {
+                        TextField(
+                            "Server URL",
+                            text: $manualServerURL,
+                            prompt: Text("https://video.example.com")
+                        )
+                        SecureField(
+                            "Recorder token",
+                            text: $manualAPIToken
+                        )
+                        Text(
+                            "For local or self-hosted servers. Applying this configuration signs out the current Screenly account."
+                        )
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        HStack {
+                            Spacer()
+                            Button("Use manual configuration") {
+                                appModel.useManualConfiguration(
+                                    serverURL: manualServerURL,
+                                    apiToken: manualAPIToken
+                                )
+                            }
+                            .disabled(
+                                manualServerURL.isEmpty ||
+                                    manualAPIToken.isEmpty ||
+                                    !appModel.canChangeAuthentication
+                            )
+                        }
+                    }
+                    .padding(.top, 6)
+                }
+            }
         }
         .formStyle(.grouped)
         .padding(12)
         .frame(width: 560, height: 620)
         .onAppear {
             appModel.permissions.refresh()
+            manualServerURL = appModel.settings.serverURL
+            if !appModel.settings.hasStoredSession {
+                manualAPIToken = appModel.settings.apiToken
+            }
         }
     }
 

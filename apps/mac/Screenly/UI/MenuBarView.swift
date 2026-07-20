@@ -39,6 +39,13 @@ struct MenuBarView: View {
                 Text("\(appModel.settings.hotkey.label) to record")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                if let workspace = appModel.settings.activeWorkspaceName,
+                   appModel.settings.isAuthenticated {
+                    Text(workspace)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(1)
+                }
             }
             Spacer()
             if case .recording = appModel.recorder.state {
@@ -53,21 +60,42 @@ struct MenuBarView: View {
     private var stateContent: some View {
         switch appModel.recorder.state {
         case .idle:
-            Button {
-                appModel.requestRecording()
-            } label: {
-                Label("New recording", systemImage: "plus.circle.fill")
-                    .frame(maxWidth: .infinity)
-            }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.large)
+            if appModel.settings.isServerConfigured {
+                Button {
+                    appModel.requestRecording()
+                } label: {
+                    Label("New recording", systemImage: "plus.circle.fill")
+                        .frame(maxWidth: .infinity)
+                }
+                .buttonStyle(.borderedProminent)
+                .controlSize(.large)
 
-            Button {
-                openLibrary()
-            } label: {
-                Label("Open team library", systemImage: "rectangle.stack")
+                Button {
+                    openLibrary()
+                } label: {
+                    Label("Open team library", systemImage: "rectangle.stack")
+                }
+                .buttonStyle(.plain)
+            } else if appModel.isAuthenticating &&
+                        appModel.settings.hasStoredSession {
+                statusRow(title: "Validating sign-in…", showsProgress: true)
+            } else {
+                VStack(alignment: .leading, spacing: 8) {
+                    Label(
+                        "Sign in to start recording",
+                        systemImage: "person.crop.circle.badge.exclamationmark"
+                    )
+                    .font(.callout.weight(.medium))
+                    Text("Your workspace determines where recordings are uploaded.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                    SettingsLink {
+                        Text("Sign in…")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             }
-            .buttonStyle(.plain)
 
         case .preparing:
             statusRow(title: "Preparing capture…", showsProgress: true)

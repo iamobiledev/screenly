@@ -14,7 +14,7 @@ struct OnboardingView: View {
                 Text("Set up Screenly")
                     .font(.largeTitle.weight(.semibold))
                 Text(
-                    "Grant capture access once, then every recording is only a hotkey away."
+                    "Sign in to your workspace and grant capture access. Then every recording is only a hotkey away."
                 )
                 .foregroundStyle(.secondary)
             }
@@ -54,21 +54,9 @@ struct OnboardingView: View {
             }
 
             VStack(alignment: .leading, spacing: 10) {
-                Text("Workspace")
+                Text("Screenly account")
                     .font(.headline)
-                TextField(
-                    "https://video.example.com",
-                    text: $appModel.settings.serverURL
-                )
-                .textFieldStyle(.roundedBorder)
-                SecureField(
-                    "Recorder API token",
-                    text: $appModel.settings.apiToken
-                )
-                .textFieldStyle(.roundedBorder)
-                Text("The token is stored in your macOS Keychain.")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+                AuthenticationView(appModel: appModel)
             }
 
             HStack {
@@ -86,7 +74,7 @@ struct OnboardingView: View {
             }
         }
         .padding(30)
-        .frame(width: 580)
+        .frame(width: 620)
         .onAppear {
             appModel.permissions.refresh()
         }
@@ -95,8 +83,8 @@ struct OnboardingView: View {
     private var canFinish: Bool {
         appModel.permissions.canRecordScreen &&
             appModel.permissions.microphoneStatus == .authorized &&
-            !appModel.settings.serverURL.isEmpty &&
-            !appModel.settings.apiToken.isEmpty
+            appModel.settings.isServerConfigured &&
+            !appModel.isAuthenticating
     }
 }
 
@@ -152,7 +140,7 @@ final class OnboardingWindowController {
         }
 
         let window = NSWindow(
-            contentRect: CGRect(x: 0, y: 0, width: 580, height: 650),
+            contentRect: CGRect(x: 0, y: 0, width: 620, height: 720),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false

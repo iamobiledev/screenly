@@ -24,6 +24,11 @@ enum KeychainStore {
     }
 
     static func set(_ value: String, for account: String) throws {
+        if value.isEmpty {
+            try remove(account)
+            return
+        }
+
         let lookup: [CFString: Any] = [
             kSecClass: kSecClassGenericPassword,
             kSecAttrService: service,
@@ -31,7 +36,7 @@ enum KeychainStore {
         ]
         let attributes: [CFString: Any] = [
             kSecValueData: Data(value.utf8),
-            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlock
+            kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
 
         let status: OSStatus
@@ -48,6 +53,18 @@ enum KeychainStore {
         }
 
         guard status == errSecSuccess else {
+            throw KeychainError(status: status)
+        }
+    }
+
+    static func remove(_ account: String) throws {
+        let query: [CFString: Any] = [
+            kSecClass: kSecClassGenericPassword,
+            kSecAttrService: service,
+            kSecAttrAccount: account
+        ]
+        let status = SecItemDelete(query as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
             throw KeychainError(status: status)
         }
     }
