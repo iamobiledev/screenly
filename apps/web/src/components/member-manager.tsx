@@ -1,7 +1,12 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState, useTransition, type FormEvent } from "react";
+import {
+  useEffect,
+  useState,
+  useTransition,
+  type FormEvent,
+} from "react";
 
 type Member = {
   userId: string;
@@ -34,8 +39,13 @@ export function MemberManager({
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
+  const [invitationRows, setInvitationRows] = useState(invitations);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    setInvitationRows(invitations);
+  }, [invitations]);
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -50,15 +60,38 @@ export function MemberManager({
         role: form.get("role"),
       }),
     });
-    const result = (await response.json()) as {
+    const result = (await response.json()) as Partial<Invitation> & {
       inviteUrl?: string;
       error?: { message?: string };
     };
-    if (!response.ok || !result.inviteUrl) {
+    if (
+      !response.ok ||
+      !result.id ||
+      !result.email ||
+      !result.role ||
+      !result.expiresAt ||
+      !result.createdAt ||
+      !result.emailStatus ||
+      !result.inviteUrl
+    ) {
       setError(result.error?.message ?? "Could not create the invitation.");
       return;
     }
 
+    setInvitationRows((current) => [
+      {
+        id: result.id!,
+        email: result.email!,
+        role: result.role!,
+        expiresAt: result.expiresAt!,
+        acceptedAt: result.acceptedAt ?? null,
+        revokedAt: result.revokedAt ?? null,
+        emailStatus: result.emailStatus!,
+        failureReason: result.failureReason ?? null,
+        createdAt: result.createdAt!,
+      },
+      ...current,
+    ]);
     setInviteUrl(result.inviteUrl);
     event.currentTarget.reset();
     startTransition(() => router.refresh());
@@ -76,8 +109,31 @@ export function MemberManager({
     }
 
     if (action === "resend") {
-      const result = (await response.json()) as { inviteUrl: string };
+      const result = (await response.json()) as Partial<Invitation> & {
+        inviteUrl: string;
+      };
+      setInvitationRows((current) =>
+        current.map((invitation) =>
+          invitation.id === id
+            ? {
+                ...invitation,
+                expiresAt: result.expiresAt ?? invitation.expiresAt,
+                emailStatus: result.emailStatus ?? invitation.emailStatus,
+                failureReason:
+                  result.failureReason ?? invitation.failureReason,
+              }
+            : invitation,
+        ),
+      );
       setInviteUrl(result.inviteUrl);
+    } else {
+      setInvitationRows((current) =>
+        current.map((invitation) =>
+          invitation.id === id
+            ? { ...invitation, revokedAt: new Date().toISOString() }
+            : invitation,
+        ),
+      );
     }
     startTransition(() => router.refresh());
   }
@@ -112,7 +168,7 @@ export function MemberManager({
             <strong>Invitation link</strong>
             <p>Copy this link if email delivery is unavailable.</p>
           </div>
-          <code>{inviteUrl}</code>
+          <code>{displayInviteUrl(inviteUrl)}</code>
           <button
             className="secondary-button"
             type="button"
@@ -139,7 +195,7 @@ export function MemberManager({
 
       <section className="access-section">
         <h2>Invitations</h2>
-        {invitations.map((invitation) => {
+        {invitationRows.map((invitation) => {
           const active = !invitation.acceptedAt && !invitation.revokedAt;
           return (
             <div className="token-row" key={invitation.id}>
@@ -177,10 +233,20 @@ export function MemberManager({
             </div>
           );
         })}
-        {invitations.length === 0 ? (
+        {invitationRows.length === 0 ? (
           <div className="empty-token-list">No invitations yet.</div>
         ) : null}
       </section>
     </div>
   );
+}
+
+function displayInviteUrl(inviteUrl: string) {
+  try {
+    const url = new URL(inviteUrl);
+    const token = url.pathname.split("/").pop() ?? "";
+    return `${url.origin}/invite/${token.slice(0, 8)}…`;
+  } catch {
+    return "Invitation link ready";
+  }
 }

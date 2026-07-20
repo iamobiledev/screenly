@@ -84,6 +84,7 @@ export async function createWorkspaceInvitation(input: {
   const email = normalizeEmail(input.email);
   const token = createInvitationToken();
   const expiresAt = new Date(Date.now() + INVITATION_DURATION_MS);
+  const createdAt = new Date();
   const [invitation] = await getDb()
     .insert(workspaceInvitations)
     .values({
@@ -93,6 +94,7 @@ export async function createWorkspaceInvitation(input: {
       tokenHash: hashOpaqueToken(token),
       invitedByUserId: input.invitedByUserId,
       expiresAt,
+      createdAt,
     })
     .returning({ id: workspaceInvitations.id });
 
@@ -113,6 +115,9 @@ export async function createWorkspaceInvitation(input: {
     email,
     role: input.role,
     expiresAt: expiresAt.toISOString(),
+    acceptedAt: null,
+    revokedAt: null,
+    createdAt: createdAt.toISOString(),
     inviteUrl,
     emailStatus: delivery.status,
     failureReason: delivery.failureReason,
@@ -148,6 +153,7 @@ export async function resendWorkspaceInvitation(input: {
       id: workspaceInvitations.id,
       email: workspaceInvitations.email,
       role: workspaceInvitations.role,
+      createdAt: workspaceInvitations.createdAt,
     });
 
   if (!invitation) {
@@ -167,6 +173,9 @@ export async function resendWorkspaceInvitation(input: {
     email: invitation.email,
     role: invitation.role,
     expiresAt: expiresAt.toISOString(),
+    acceptedAt: null,
+    revokedAt: null,
+    createdAt: invitation.createdAt.toISOString(),
     inviteUrl,
     emailStatus: delivery.status,
     failureReason: delivery.failureReason,
