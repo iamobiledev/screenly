@@ -1,12 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import {
-  useEffect,
-  useState,
-  useTransition,
-  type FormEvent,
-} from "react";
+import { useState, type FormEvent } from "react";
 
 type Member = {
   userId: string;
@@ -37,15 +31,9 @@ export function MemberManager({
   invitations: Invitation[];
   currentRole: "owner" | "admin";
 }) {
-  const router = useRouter();
-  const [isPending, startTransition] = useTransition();
   const [invitationRows, setInvitationRows] = useState(invitations);
   const [inviteUrl, setInviteUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setInvitationRows(invitations);
-  }, [invitations]);
 
   async function invite(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -94,7 +82,6 @@ export function MemberManager({
     ]);
     setInviteUrl(result.inviteUrl);
     event.currentTarget.reset();
-    startTransition(() => router.refresh());
   }
 
   async function updateInvitation(id: string, action: "resend" | "revoke") {
@@ -135,11 +122,10 @@ export function MemberManager({
         ),
       );
     }
-    startTransition(() => router.refresh());
   }
 
   return (
-    <div className={isPending ? "member-manager is-pending" : "member-manager"}>
+    <div className="member-manager">
       <form className="invite-form" onSubmit={invite}>
         <input
           aria-label="Invitee email"
