@@ -61,6 +61,7 @@ export async function POST(request: Request) {
 
     await getDb().insert(videos).values({
       id: videoId,
+      workspaceId: authentication.workspaceId,
       slug,
       title,
       recorderName: authentication.recorderName ?? input.recorderName,

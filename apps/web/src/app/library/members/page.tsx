@@ -2,20 +2,17 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { LibraryNav } from "@/components/library-nav";
-import { RecorderTokenManager } from "@/components/recorder-token-manager";
-import { listRecorderTokens } from "@/features/auth/recorder-tokens";
+import { MemberManager } from "@/components/member-manager";
+import { listWorkspaceAccess } from "@/features/auth/invitations";
 import {
   canManageWorkspace,
   listUserWorkspaces,
 } from "@/features/auth/users";
-import {
-  getSessionAuth,
-  SESSION_COOKIE_NAME,
-} from "@/lib/session";
+import { getSessionAuth, SESSION_COOKIE_NAME } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default async function RecorderTokensPage() {
+export default async function MembersPage() {
   const cookieStore = await cookies();
   const authentication = await getSessionAuth(
     cookieStore.get(SESSION_COOKIE_NAME)?.value,
@@ -27,8 +24,8 @@ export default async function RecorderTokensPage() {
     redirect("/library");
   }
 
-  const [tokens, workspaces] = await Promise.all([
-    listRecorderTokens(authentication.workspace.id),
+  const [access, workspaces] = await Promise.all([
+    listWorkspaceAccess(authentication.workspace.id),
     listUserWorkspaces(authentication.user.id),
   ]);
 
@@ -38,19 +35,20 @@ export default async function RecorderTokensPage() {
         activeWorkspace={authentication.workspace}
         workspaces={workspaces}
       />
-
       <header className="library-heading">
         <div>
-          <p className="eyebrow">Workspace settings</p>
-          <h1>Recorder tokens</h1>
+          <p className="eyebrow">{authentication.workspace.name}</p>
+          <h1>Members</h1>
           <p className="page-description">
-            Create a separate token for each Mac. Revoking one immediately
-            blocks new uploads without affecting existing recordings.
+            Invite teammates and manage outstanding workspace invitations.
           </p>
         </div>
       </header>
-
-      <RecorderTokenManager initialTokens={tokens} />
+      <MemberManager
+        currentRole={authentication.workspace.role}
+        invitations={access.invitations}
+        members={access.members}
+      />
     </main>
   );
 }

@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { videos } from "@/db/schema";
@@ -15,7 +15,8 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
-  if (!(await authenticateUploadRequest(request))) {
+  const authentication = await authenticateUploadRequest(request);
+  if (!authentication) {
     return unauthorizedResponse();
   }
 
@@ -24,7 +25,12 @@ export async function DELETE(
     const [video] = await getDb()
       .select()
       .from(videos)
-      .where(eq(videos.id, videoId))
+      .where(
+        and(
+          eq(videos.id, videoId),
+          eq(videos.workspaceId, authentication.workspaceId),
+        ),
+      )
       .limit(1);
 
     if (!video) {
@@ -47,7 +53,14 @@ export async function DELETE(
       key: video.sourceObjectKey,
       uploadId: video.multipartUploadId,
     });
-    await getDb().delete(videos).where(eq(videos.id, video.id));
+    await getDb()
+      .delete(videos)
+      .where(
+        and(
+          eq(videos.id, video.id),
+          eq(videos.workspaceId, authentication.workspaceId),
+        ),
+      );
 
     return new Response(null, { status: 204 });
   } catch (error) {

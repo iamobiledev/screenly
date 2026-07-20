@@ -57,6 +57,7 @@ Copy the example configuration and replace the Neon connection string:
 ```bash
 cp .env.example apps/web/.env.local
 pnpm db:migrate
+pnpm user:bootstrap
 pnpm dev
 ```
 
@@ -96,6 +97,40 @@ revoked without affecting uploaded recordings. `UPLOAD_API_TOKEN` remains as
 an optional bootstrap/recovery credential and should not be installed on team
 devices.
 
+## Users and workspaces
+
+Browser and native-device access use individual username/password accounts.
+There is no open signup: owners and admins invite users from
+`/library/members`, and invitees create an account (or authenticate their
+existing account) from the emailed link. Usernames and email addresses are
+stored normalized to lowercase. Passwords use Node.js scrypt, browser cookies
+are HMAC-signed, and native device sessions store only SHA-256 token hashes.
+
+After applying migrations, bootstrap the first owner and fixed default
+workspace:
+
+```bash
+export OWNER_USERNAME=admin
+export OWNER_EMAIL=admin@example.com
+export OWNER_PASSWORD='at-least-12-characters'
+export WORKSPACE_NAME='Screenly'
+pnpm user:bootstrap
+```
+
+The bootstrap command is idempotent and never prints the password. Configure
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and `APP_URL` to deliver invitation
+emails. If Resend is not configured, invitation creation still returns a
+copyable `inviteUrl` and records failed delivery.
+
+Native clients sign in with `POST /api/auth/device/session` using
+`username`, `password`, and `deviceName`. The response contains
+`sessionToken`, `sessionExpiresAt`, `user`, `workspaces`, `activeWorkspace`,
+and a one-time `recorderToken` object. A bearer user-session token can read the
+current `user` and `workspaces` with `GET` on the same route or revoke itself
+with `DELETE`. `POST /api/auth/device/workspace` accepts `workspaceId` and
+`deviceName`, then returns `activeWorkspace` and a newly minted
+workspace-scoped `recorderToken`.
+
 ## Database changes
 
 Drizzle migrations live in `apps/web/drizzle`.
@@ -108,6 +143,10 @@ pnpm db:studio
 
 Generate migrations after editing `apps/web/src/db/schema.ts`; apply committed
 migrations during deployment before promoting a new application revision.
+The multi-workspace migration creates the fixed default workspace
+`00000000-0000-4000-8000-000000000001`, backfills every existing video and
+recorder token to it, and only then makes both workspace columns non-null.
+Video IDs, slugs, and object keys are unchanged.
 
 ## Docker
 
@@ -171,11 +210,12 @@ gcloud run jobs add-iam-policy-binding screenly-processor \
   --role roles/run.jobsExecutorWithOverrides
 ```
 
-Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
-`UPLOAD_API_TOKEN`, workspace password, and object-store credentials in Google
-Secret Manager. Apply the committed Drizzle migrations before routing traffic
-to a new schema-dependent revision. The service health endpoint is
-`/api/health`.
+Store `DATABASE_URL`, `SESSION_SECRET`, optional `UPLOAD_API_TOKEN`,
+`RESEND_API_KEY`, `RESEND_FROM_EMAIL`, and object-store credentials in Google
+Secret Manager. Apply the committed Drizzle migrations and run
+`pnpm user:bootstrap` with owner variables before routing traffic to the new
+schema-dependent revision. `UPLOAD_API_TOKEN` is restricted to the fixed
+default workspace. The service health endpoint is `/api/health`.
 
 Each job receives one `VIDEO_ID` override from the web service. A database
 lease prevents duplicate Cloud Run executions from processing the same video.

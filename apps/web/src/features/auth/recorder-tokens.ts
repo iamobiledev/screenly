@@ -7,13 +7,19 @@ import { recorderTokens } from "@/db/schema";
 
 const LAST_USED_WRITE_INTERVAL_MS = 5 * 60 * 1_000;
 
-export async function createRecorderToken(name: string) {
+export async function createRecorderToken(
+  workspaceId: string,
+  name: string,
+  createdByUserId?: string,
+) {
   const secret = randomBytes(32).toString("base64url");
   const prefix = secret.slice(0, 8);
   const token = `screenly_${prefix}_${secret}`;
   const [record] = await getDb()
     .insert(recorderTokens)
     .values({
+      workspaceId,
+      createdByUserId,
       name,
       tokenPrefix: prefix,
       tokenHash: hashToken(token),
@@ -36,7 +42,7 @@ export async function createRecorderToken(name: string) {
   };
 }
 
-export async function listRecorderTokens() {
+export async function listRecorderTokens(workspaceId: string) {
   const rows = await getDb()
     .select({
       id: recorderTokens.id,
@@ -46,7 +52,12 @@ export async function listRecorderTokens() {
       lastUsedAt: recorderTokens.lastUsedAt,
     })
     .from(recorderTokens)
-    .where(isNull(recorderTokens.revokedAt))
+    .where(
+      and(
+        eq(recorderTokens.workspaceId, workspaceId),
+        isNull(recorderTokens.revokedAt),
+      ),
+    )
     .orderBy(desc(recorderTokens.createdAt));
 
   return rows.map((row) => ({
@@ -56,12 +67,16 @@ export async function listRecorderTokens() {
   }));
 }
 
-export async function revokeRecorderToken(id: string) {
+export async function revokeRecorderToken(workspaceId: string, id: string) {
   const [record] = await getDb()
     .update(recorderTokens)
     .set({ revokedAt: new Date() })
     .where(
-      and(eq(recorderTokens.id, id), isNull(recorderTokens.revokedAt)),
+      and(
+        eq(recorderTokens.id, id),
+        eq(recorderTokens.workspaceId, workspaceId),
+        isNull(recorderTokens.revokedAt),
+      ),
     )
     .returning({ id: recorderTokens.id });
 
@@ -73,6 +88,7 @@ export async function authenticateRecorderToken(token: string) {
     .select({
       id: recorderTokens.id,
       name: recorderTokens.name,
+      workspaceId: recorderTokens.workspaceId,
       lastUsedAt: recorderTokens.lastUsedAt,
     })
     .from(recorderTokens)
@@ -102,7 +118,7 @@ export async function authenticateRecorderToken(token: string) {
       ),
     );
 
-  return { name: record.name };
+  return { name: record.name, workspaceId: record.workspaceId };
 }
 
 function hashToken(token: string) {

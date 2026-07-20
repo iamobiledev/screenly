@@ -2,6 +2,8 @@ import { timingSafeEqual } from "node:crypto";
 
 import { ZodError } from "zod";
 
+import { DEFAULT_WORKSPACE_ID } from "@/db/schema";
+import { InvitationError } from "@/features/auth/invitations";
 import { authenticateRecorderToken } from "@/features/auth/recorder-tokens";
 
 export async function authenticateUploadRequest(request: Request) {
@@ -21,12 +23,17 @@ export async function authenticateUploadRequest(request: Request) {
       expected.length === received.length &&
       timingSafeEqual(expected, received)
     ) {
-      return { recorderName: null };
+      return {
+        recorderName: null,
+        workspaceId: DEFAULT_WORKSPACE_ID,
+      };
     }
   }
 
   const recorder = await authenticateRecorderToken(receivedToken);
-  return recorder ? { recorderName: recorder.name } : null;
+  return recorder
+    ? { recorderName: recorder.name, workspaceId: recorder.workspaceId }
+    : null;
 }
 
 export function unauthorizedResponse() {
@@ -42,6 +49,18 @@ export function unauthorizedResponse() {
 }
 
 export function apiErrorResponse(error: unknown) {
+  if (error instanceof InvitationError) {
+    return Response.json(
+      {
+        error: {
+          code: error.code,
+          message: error.message,
+        },
+      },
+      { status: error.status },
+    );
+  }
+
   if (error instanceof ZodError) {
     return Response.json(
       {
