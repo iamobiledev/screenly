@@ -29,6 +29,13 @@
       "when": 1784578295965,
       "tag": "0003_wet_xorn",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1784591581713,
+      "tag": "0004_perpetual_puppet_master",
+      "breakpoints": true
     }
   ]
 }

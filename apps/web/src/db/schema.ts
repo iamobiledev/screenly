@@ -177,6 +177,15 @@ export const videos = pgTable(
     processingLeaseExpiresAt: timestamp("processing_lease_expires_at", {
       withTimezone: true,
     }),
+    processingStage: varchar("processing_stage", { length: 32 }),
+    processingProgress: integer("processing_progress"),
+    processingEtaSeconds: integer("processing_eta_seconds"),
+    processingStartedAt: timestamp("processing_started_at", {
+      withTimezone: true,
+    }),
+    processingHeartbeatAt: timestamp("processing_heartbeat_at", {
+      withTimezone: true,
+    }),
     viewCount: integer("view_count").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -193,6 +202,46 @@ export const videos = pgTable(
     index("videos_workspace_created_at_index").on(
       table.workspaceId,
       table.createdAt,
+    ),
+  ],
+);
+
+export const slackUnfurls = pgTable(
+  "slack_unfurls",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    videoId: uuid("video_id")
+      .notNull()
+      .references(() => videos.id, { onDelete: "cascade" }),
+    teamId: varchar("team_id", { length: 64 }).notNull(),
+    channelId: varchar("channel_id", { length: 64 }).notNull(),
+    messageTs: varchar("message_ts", { length: 80 }).notNull(),
+    unfurlId: text("unfurl_id"),
+    source: varchar("source", { length: 32 }),
+    sharedUrl: text("shared_url").notNull(),
+    lastVideoStatus: videoStatus("last_video_status"),
+    finalDeliveredAt: timestamp("final_delivered_at", {
+      withTimezone: true,
+    }),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("slack_unfurls_target_url_unique").on(
+      table.teamId,
+      table.channelId,
+      table.messageTs,
+      table.sharedUrl,
+    ),
+    index("slack_unfurls_video_pending_index").on(
+      table.videoId,
+      table.finalDeliveredAt,
     ),
   ],
 );
