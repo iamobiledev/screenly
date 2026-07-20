@@ -96,14 +96,16 @@ final class RecorderSettings: ObservableObject {
         availableWorkspaces = Self.decodeWorkspaces(
             defaults.data(forKey: Key.workspaces)
         )
-        activeWorkspaceID = defaults.string(forKey: Key.activeWorkspaceID)
+        let storedWorkspaceID = defaults.string(forKey: Key.activeWorkspaceID)
+        activeWorkspaceID = storedWorkspaceID
         activeWorkspaceName = defaults.string(forKey: Key.activeWorkspaceName)
         sessionExpiresAt = defaults.object(forKey: Key.sessionExpiresAt) as? Date
-        sessionToken = KeychainStore.string(for: Key.sessionToken)
+        let storedSessionToken = KeychainStore.string(for: Key.sessionToken)
+        sessionToken = storedSessionToken
 
-        if !sessionToken.isEmpty, let activeWorkspaceID {
+        if !storedSessionToken.isEmpty, let storedWorkspaceID {
             apiToken = KeychainStore.string(
-                for: Self.recorderTokenAccount(workspaceID: activeWorkspaceID)
+                for: Self.recorderTokenAccount(workspaceID: storedWorkspaceID)
             )
         } else {
             apiToken = KeychainStore.string(for: Key.apiToken)
