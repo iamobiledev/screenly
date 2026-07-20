@@ -15,6 +15,14 @@ export type MediaProbe = {
   isWebCompatible: boolean;
 };
 
+export type MediaProgress = {
+  fraction: number;
+  speed: number | null;
+  etaSeconds: number | null;
+};
+
+type MediaProgressCallback = (progress: MediaProgress) => void;
+
 export async function probeMedia(inputPath: string): Promise<MediaProbe> {
   const output = await run("ffprobe", [
     "-v",
@@ -59,6 +67,7 @@ export async function transcodeToMP4(
   inputPath: string,
   outputPath: string,
   probe: MediaProbe,
+  onProgress?: MediaProgressCallback,
 ) {
   const argumentsList = [
     "-y",
@@ -106,7 +115,7 @@ export async function transcodeToMP4(
   }
 
   argumentsList.push(outputPath);
-  await run("ffmpeg", argumentsList);
+  await runFfmpeg(argumentsList, probe.durationSeconds, onProgress);
 }
 
 export async function generateThumbnail(
@@ -135,13 +144,15 @@ export async function generateAnimatedPreview(
   inputPath: string,
   outputPath: string,
   durationSeconds: number,
+  onProgress?: MediaProgressCallback,
 ) {
-  await run("ffmpeg", [
+  const previewDuration = Math.min(6, durationSeconds);
+  await runFfmpeg([
     "-y",
     "-ss",
     Math.min(1, durationSeconds * 0.1).toFixed(3),
     "-t",
-    Math.min(6, durationSeconds).toFixed(3),
+    previewDuration.toFixed(3),
     "-i",
     inputPath,
     "-an",
@@ -154,15 +165,17 @@ export async function generateAnimatedPreview(
     "-loop",
     "0",
     outputPath,
-  ]);
+  ], previewDuration, onProgress);
 }
 
 export async function generateHLS(
   inputPath: string,
   outputDirectory: string,
+  durationSeconds: number,
+  onProgress?: MediaProgressCallback,
 ) {
   await mkdir(outputDirectory, { recursive: true });
-  await run("ffmpeg", [
+  await runFfmpeg([
     "-y",
     "-i",
     inputPath,
@@ -183,7 +196,7 @@ export async function generateHLS(
     "-hls_segment_filename",
     path.join(outputDirectory, "segment-%05d.m4s"),
     path.join(outputDirectory, "index.m3u8"),
-  ]);
+  ], durationSeconds, onProgress);
 }
 
 async function run(command: string, argumentsList: string[]) {
@@ -215,4 +228,117 @@ async function run(command: string, argumentsList: string[]) {
       );
     });
   });
+}
+
+async function runFfmpeg(
+  argumentsList: string[],
+  durationSeconds: number,
+  onProgress?: MediaProgressCallback,
+) {
+  const outputPath = argumentsList.at(-1);
+  if (!outputPath) {
+    throw new Error("ffmpeg requires an output path.");
+  }
+
+  const ffmpegArguments = [
+    ...argumentsList.slice(0, -1),
+    "-progress",
+    "pipe:1",
+    "-nostats",
+    outputPath,
+  ];
+
+  return new Promise<void>((resolve, reject) => {
+    const child = spawn("ffmpeg", ffmpegArguments, {
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let stdoutBuffer = "";
+    let stderr = "";
+    let progressRecord: Record<string, string> = {};
+
+    child.stdout.setEncoding("utf8");
+    child.stdout.on("data", (chunk: string) => {
+      stdoutBuffer += chunk;
+      let newlineIndex = stdoutBuffer.indexOf("\n");
+      while (newlineIndex >= 0) {
+        const line = stdoutBuffer.slice(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.slice(newlineIndex + 1);
+        const separatorIndex = line.indexOf("=");
+        if (separatorIndex > 0) {
+          const key = line.slice(0, separatorIndex);
+          progressRecord[key] = line.slice(separatorIndex + 1);
+          if (key === "progress") {
+            const progress = parseFfmpegProgress(
+              progressRecord,
+              durationSeconds,
+            );
+            if (progress) {
+              onProgress?.(progress);
+            }
+            progressRecord = {};
+          }
+        }
+        newlineIndex = stdoutBuffer.indexOf("\n");
+      }
+    });
+    child.stderr.setEncoding("utf8");
+    child.stderr.on("data", (chunk: string) => {
+      stderr = `${stderr}${chunk}`.slice(-64 * 1_024);
+    });
+    child.once("error", reject);
+    child.once("exit", (code, signal) => {
+      if (code === 0) {
+        onProgress?.({ fraction: 1, speed: null, etaSeconds: 0 });
+        resolve();
+        return;
+      }
+      reject(
+        new Error(
+          `ffmpeg failed (${signal ?? code ?? "unknown"}): ${stderr.trim()}`,
+        ),
+      );
+    });
+  });
+}
+
+export function parseFfmpegProgress(
+  record: Record<string, string>,
+  durationSeconds: number,
+): MediaProgress | null {
+  const outputMicroseconds = Number(record.out_time_us ?? record.out_time_ms);
+  const outputSeconds = Number.isFinite(outputMicroseconds)
+    ? outputMicroseconds / 1_000_000
+    : parseFfmpegTime(record.out_time);
+  if (!Number.isFinite(outputSeconds) || durationSeconds <= 0) {
+    return null;
+  }
+
+  const speedValue = Number(record.speed?.replace(/x$/, ""));
+  const speed = Number.isFinite(speedValue) && speedValue > 0 ? speedValue : null;
+  const fraction =
+    record.progress === "end"
+      ? 1
+      : Math.min(1, Math.max(0, outputSeconds / durationSeconds));
+  const remainingMediaSeconds = Math.max(0, durationSeconds - outputSeconds);
+
+  return {
+    fraction,
+    speed,
+    etaSeconds: speed === null ? null : remainingMediaSeconds / speed,
+  };
+}
+
+function parseFfmpegTime(value: string | undefined) {
+  if (!value) {
+    return Number.NaN;
+  }
+  const match = value.match(/^(\d+):(\d+):(\d+(?:\.\d+)?)$/);
+  if (!match) {
+    return Number.NaN;
+  }
+  return (
+    Number(match[1]) * 3_600 +
+    Number(match[2]) * 60 +
+    Number(match[3])
+  );
 }

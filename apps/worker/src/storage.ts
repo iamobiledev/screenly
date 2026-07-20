@@ -1,7 +1,7 @@
 import { createReadStream, createWriteStream } from "node:fs";
 import { readdir, stat } from "node:fs/promises";
 import path from "node:path";
-import { Readable } from "node:stream";
+import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
@@ -11,6 +11,11 @@ import {
 } from "@aws-sdk/client-s3";
 
 import type { WorkerConfig } from "./config.js";
+
+type TransferProgressCallback = (
+  transferredBytes: number,
+  totalBytes: number,
+) => void;
 
 export class ObjectStorage {
   private readonly bucket: string;
@@ -37,7 +42,11 @@ export class ObjectStorage {
     });
   }
 
-  async download(key: string, destination: string) {
+  async download(
+    key: string,
+    destination: string,
+    onProgress?: TransferProgressCallback,
+  ) {
     const response = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
@@ -49,16 +58,26 @@ export class ObjectStorage {
       throw new Error(`Object ${key} did not return a Node.js byte stream.`);
     }
 
-    await pipeline(response.Body, createWriteStream(destination));
+    const totalBytes = Number(response.ContentLength ?? 0);
+    const counter = createCountingTransform(totalBytes, onProgress);
+    await pipeline(response.Body, counter, createWriteStream(destination));
   }
 
-  async uploadFile(filePath: string, key: string) {
+  async uploadFile(
+    filePath: string,
+    key: string,
+    onProgress?: TransferProgressCallback,
+  ) {
     const file = await stat(filePath);
+    const counter = createCountingTransform(file.size, onProgress);
+    const source = createReadStream(filePath);
+    source.once("error", (error) => counter.destroy(error));
+    source.pipe(counter);
     await this.client.send(
       new PutObjectCommand({
         Bucket: this.bucket,
         Key: key,
-        Body: createReadStream(filePath),
+        Body: counter,
         ContentLength: file.size,
         ContentType: contentTypeFor(filePath),
         CacheControl: "public, max-age=31536000, immutable",
@@ -66,25 +85,56 @@ export class ObjectStorage {
     );
   }
 
-  async uploadDirectory(directoryPath: string, keyPrefix: string) {
+  async uploadDirectory(
+    directoryPath: string,
+    keyPrefix: string,
+    onProgress?: TransferProgressCallback,
+  ) {
     const entries = await readdir(directoryPath, {
       recursive: true,
       withFileTypes: true,
     });
+    const files = await Promise.all(
+      entries
+        .filter((entry) => entry.isFile())
+        .map(async (entry) => {
+          const sourcePath = path.join(entry.parentPath, entry.name);
+          const file = await stat(sourcePath);
+          return { sourcePath, size: file.size };
+        }),
+    );
+    const totalBytes = files.reduce((total, file) => total + file.size, 0);
+    let completedBytes = 0;
 
-    for (const entry of entries) {
-      if (!entry.isFile()) {
-        continue;
-      }
-
-      const sourcePath = path.join(entry.parentPath, entry.name);
-      const relativePath = path.relative(directoryPath, sourcePath);
+    for (const file of files) {
+      const relativePath = path.relative(directoryPath, file.sourcePath);
       await this.uploadFile(
-        sourcePath,
+        file.sourcePath,
         `${keyPrefix}/${relativePath.split(path.sep).join("/")}`,
+        (transferredBytes) => {
+          onProgress?.(completedBytes + transferredBytes, totalBytes);
+        },
       );
+      completedBytes += file.size;
     }
+    onProgress?.(totalBytes, totalBytes);
   }
+}
+
+function createCountingTransform(
+  totalBytes: number,
+  onProgress?: TransferProgressCallback,
+) {
+  let transferredBytes = 0;
+  onProgress?.(0, totalBytes);
+
+  return new Transform({
+    transform(chunk: Buffer, _encoding, callback) {
+      transferredBytes += chunk.length;
+      onProgress?.(transferredBytes, totalBytes);
+      callback(null, chunk);
+    },
+  });
 }
 
 function contentTypeFor(filePath: string) {

@@ -4,8 +4,12 @@ import type { WorkerConfig } from "./config.js";
 
 export type VideoJob = {
   id: string;
+  slug: string;
+  title: string;
+  recorderName: string;
   sourceObjectKey: string;
   contentType: string;
+  sizeBytes: number;
 };
 
 export class VideoRepository {
@@ -31,6 +35,11 @@ export class VideoRepository {
         processing_error = null,
         processing_lease_id = ${leaseID}::uuid,
         processing_lease_expires_at = now() + interval '2 hours',
+        processing_stage = 'downloading',
+        processing_progress = 100,
+        processing_eta_seconds = null,
+        processing_started_at = now(),
+        processing_heartbeat_at = now(),
         updated_at = now()
       where id = ${videoID}::uuid
         and status in ('processing', 'failed')
@@ -40,11 +49,49 @@ export class VideoRepository {
         )
       returning
         id,
+        slug,
+        title,
+        recorder_name as "recorderName",
         source_object_key as "sourceObjectKey",
-        content_type as "contentType"
+        content_type as "contentType",
+        size_bytes::double precision as "sizeBytes"
     `) as unknown as VideoJob[];
 
     return rows[0] ?? null;
+  }
+
+  async updateProgress(input: {
+    videoID: string;
+    leaseID: string;
+    stage: string;
+    progressBasisPoints: number;
+    etaSeconds: number | null;
+  }) {
+    await this.sql`
+      update videos
+      set
+        processing_stage = ${input.stage},
+        processing_progress = ${input.progressBasisPoints},
+        processing_eta_seconds = ${input.etaSeconds},
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      where id = ${input.videoID}::uuid
+        and processing_lease_id = ${input.leaseID}::uuid
+        and status = 'processing'
+    `;
+  }
+
+  async setDuration(videoID: string, leaseID: string, durationSeconds: number) {
+    await this.sql`
+      update videos
+      set
+        duration_seconds = ${Math.round(durationSeconds)},
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      where id = ${videoID}::uuid
+        and processing_lease_id = ${leaseID}::uuid
+        and status = 'processing'
+    `;
   }
 
   async complete(input: {
@@ -68,6 +115,10 @@ export class VideoRepository {
         processing_error = null,
         processing_lease_id = null,
         processing_lease_expires_at = null,
+        processing_stage = 'ready',
+        processing_progress = 10000,
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
         ready_at = now(),
         updated_at = now()
       where id = ${input.videoID}::uuid
@@ -86,6 +137,9 @@ export class VideoRepository {
         processing_error = ${message.slice(0, 4_000)},
         processing_lease_id = null,
         processing_lease_expires_at = null,
+        processing_stage = 'failed',
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
         updated_at = now()
       where id = ${videoID}::uuid
         and processing_lease_id = ${leaseID}::uuid
