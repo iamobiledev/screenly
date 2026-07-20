@@ -22,6 +22,7 @@ export class ObjectStorage {
       region: config.S3_REGION,
       endpoint: config.S3_ENDPOINT,
       forcePathStyle: config.S3_FORCE_PATH_STYLE,
+      requestChecksumCalculation: "WHEN_REQUIRED",
       credentials: {
         accessKeyId: config.S3_ACCESS_KEY_ID,
         secretAccessKey: config.S3_SECRET_ACCESS_KEY,
