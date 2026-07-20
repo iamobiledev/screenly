@@ -65,7 +65,11 @@ export default async function VideoPage({
             />
           ) : video.status === "uploading" ||
             video.status === "processing" ? (
-            <ProcessingState slug={video.slug} status={video.status} />
+            <ProcessingState
+              initialProcessing={video.processing}
+              slug={video.slug}
+              status={video.status}
+            />
           ) : (
             <div className="processing-panel processing-panel-error">
               <span className="error-icon">!</span>

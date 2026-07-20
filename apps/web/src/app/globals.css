@@ -340,6 +340,64 @@ a {
   line-height: 1.55;
 }
 
+.processing-panel-progress {
+  display: block;
+  width: min(560px, 100%);
+}
+
+.processing-progress-copy {
+  width: 100%;
+}
+
+.processing-progress-heading {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 24px;
+}
+
+.processing-progress-heading h2 {
+  margin-bottom: 14px;
+}
+
+.processing-progress-heading strong {
+  color: #d8d6ff;
+  font-family: var(--font-geist-mono), monospace;
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+}
+
+.processing-progress-track {
+  position: relative;
+  overflow: hidden;
+  width: 100%;
+  height: 8px;
+  margin-bottom: 14px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.processing-progress-track > span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: linear-gradient(90deg, #8c7fff, #c4bdff);
+  box-shadow: 0 0 18px rgba(140, 127, 255, 0.45);
+  transition: width 500ms ease;
+}
+
+.processing-progress-track.is-indeterminate > span {
+  width: 30% !important;
+  animation: processing-progress-indeterminate 1.4s ease-in-out infinite;
+}
+
+.processing-progress-note {
+  display: block;
+  margin-top: 7px;
+  color: #74767c;
+  font-size: 11px;
+}
+
 .processing-spinner {
   flex: 0 0 auto;
   width: 28px;
@@ -1044,6 +1102,16 @@ a {
 @keyframes spin {
   to {
     transform: rotate(360deg);
+  }
+}
+
+@keyframes processing-progress-indeterminate {
+  from {
+    transform: translateX(-110%);
+  }
+
+  to {
+    transform: translateX(440%);
   }
 }
 

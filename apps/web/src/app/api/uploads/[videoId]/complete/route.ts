@@ -124,6 +124,11 @@ export async function POST(
       .set({
         status: "processing",
         multipartUploadId: null,
+        processingStage: "queued",
+        processingProgress: 0,
+        processingEtaSeconds: null,
+        processingStartedAt: null,
+        processingHeartbeatAt: null,
         uploadedAt: now,
         updatedAt: now,
       })

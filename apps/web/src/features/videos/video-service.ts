@@ -15,6 +15,14 @@ export type PublicVideo = {
   viewCount: number;
   createdAt: string;
   readyAt: string | null;
+  processing: PublicProcessingState | null;
+};
+
+export type PublicProcessingState = {
+  stage: string | null;
+  progressPercent: number | null;
+  etaSeconds: number | null;
+  heartbeatAt: string | null;
 };
 
 const demoVideo: PublicVideo = {
@@ -29,6 +37,7 @@ const demoVideo: PublicVideo = {
   viewCount: 1,
   createdAt: "2026-07-19T00:00:00.000Z",
   readyAt: "2026-07-19T00:00:00.000Z",
+  processing: null,
 };
 
 export async function getPublicVideoBySlug(slug: string) {
@@ -69,5 +78,24 @@ async function toPublicVideo(video: Video): Promise<PublicVideo> {
     viewCount: video.viewCount,
     createdAt: video.createdAt.toISOString(),
     readyAt: video.readyAt?.toISOString() ?? null,
+    processing:
+      video.status === "processing"
+        ? {
+            stage: video.processingStage,
+            progressPercent:
+              video.processingProgress === null
+                ? null
+                : Math.round(
+                    Math.min(10_000, Math.max(0, video.processingProgress)) /
+                      100,
+                  ),
+            etaSeconds:
+              video.processingEtaSeconds === null
+                ? null
+                : Math.max(0, video.processingEtaSeconds),
+            heartbeatAt:
+              video.processingHeartbeatAt?.toISOString() ?? null,
+          }
+        : null,
   };
 }
