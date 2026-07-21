@@ -5,7 +5,9 @@ import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
 
 import {
+  DeleteObjectsCommand,
   GetObjectCommand,
+  ListObjectsV2Command,
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
@@ -124,6 +126,38 @@ export class ObjectStorage {
       completedBytes += file.size;
     }
     onProgress?.(totalBytes, totalBytes);
+  }
+
+  async deletePrefix(prefix: string) {
+    let continuationToken: string | undefined;
+
+    do {
+      const result = await this.client.send(
+        new ListObjectsV2Command({
+          Bucket: this.bucket,
+          Prefix: prefix,
+          ContinuationToken: continuationToken,
+        }),
+      );
+      const objects =
+        result.Contents?.flatMap((object) =>
+          object.Key ? [{ Key: object.Key }] : [],
+        ) ?? [];
+      if (objects.length > 0) {
+        const deletion = await this.client.send(
+          new DeleteObjectsCommand({
+            Bucket: this.bucket,
+            Delete: { Objects: objects, Quiet: true },
+          }),
+        );
+        if (deletion.Errors?.length) {
+          throw new Error(
+            `Could not delete processing attempt objects: ${deletion.Errors.map((error) => error.Key).join(", ")}`,
+          );
+        }
+      }
+      continuationToken = result.NextContinuationToken;
+    } while (continuationToken);
   }
 }
 

@@ -308,6 +308,19 @@ async function main() {
       }
       if (!processingCompleted) {
         await repository.fail(video.id, leaseID, processingError);
+        await storage.deletePrefix(`${objectPrefix}/`).catch((storageError) => {
+          console.error(
+            JSON.stringify({
+              level: "error",
+              message: "Could not clean up failed processing attempt assets.",
+              videoID: video.id,
+              error:
+                storageError instanceof Error
+                  ? storageError.message
+                  : String(storageError),
+            }),
+          );
+        });
         await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
           console.error(
             JSON.stringify({
