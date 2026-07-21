@@ -1,0 +1,24 @@
+display_information:
+  name: Screenly
+  description: Play Screenly video links directly inside Slack.
+  background_color: "#6656e8"
+features:
+  bot_user:
+    display_name: Screenly
+    always_online: false
+  unfurl_domains:
+    - screenly.example.com
+oauth_config:
+  scopes:
+    bot:
+      - links:read
+      - links:write
+      - links.embed:write
+settings:
+  event_subscriptions:
+    request_url: https://screenly.example.com/api/integrations/slack/events
+    bot_events:
+      - link_shared
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false
