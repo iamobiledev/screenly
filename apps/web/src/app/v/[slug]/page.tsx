@@ -25,9 +25,54 @@ export async function generateMetadata({
     return { title: "Video not found" };
   }
 
+  const description = `Watch a recording shared by ${video.recorderName}.`;
+  const canonicalUrl = absoluteAppUrl(`/v/${encodeURIComponent(video.slug)}`);
+  const metadataThumbnailUrl =
+    absoluteAppUrl(
+      `/api/videos/${encodeURIComponent(video.slug)}/thumbnail`,
+    ) ?? video.thumbnailUrl;
+  const metadataPlaybackUrl =
+    absoluteAppUrl(
+      `/api/videos/${encodeURIComponent(video.slug)}/playback`,
+    ) ?? video.playbackUrl;
+
   return {
     title: video.title,
-    description: `Watch a recording shared by ${video.recorderName}.`,
+    description,
+    alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+    openGraph: {
+      type: "website",
+      title: video.title,
+      description,
+      siteName: "Screenly",
+      url: canonicalUrl ?? undefined,
+      images: metadataThumbnailUrl
+        ? [
+            {
+              url: metadataThumbnailUrl,
+              type: "image/jpeg",
+              alt: `Preview of ${video.title}`,
+            },
+          ]
+        : undefined,
+      videos:
+        video.status === "ready" && metadataPlaybackUrl
+          ? [
+              {
+                url: metadataPlaybackUrl,
+                type: "video/mp4",
+              },
+            ]
+          : undefined,
+    },
+    twitter: metadataThumbnailUrl
+      ? {
+          card: "summary_large_image",
+          title: video.title,
+          description,
+          images: [metadataThumbnailUrl],
+        }
+      : undefined,
   };
 }
 
@@ -65,7 +110,11 @@ export default async function VideoPage({
             />
           ) : video.status === "uploading" ||
             video.status === "processing" ? (
-            <ProcessingState slug={video.slug} status={video.status} />
+            <ProcessingState
+              initialProcessing={video.processing}
+              slug={video.slug}
+              status={video.status}
+            />
           ) : (
             <div className="processing-panel processing-panel-error">
               <span className="error-icon">!</span>
@@ -101,6 +150,19 @@ function formatRecordedDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
   }).format(new Date(value));
+}
+
+function absoluteAppUrl(pathname: string) {
+  const appUrl = process.env.APP_URL;
+  if (!appUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(pathname, appUrl).toString();
+  } catch {
+    return null;
+  }
 }
 
 function EyeIcon() {

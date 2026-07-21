@@ -1,6 +1,12 @@
 import { z } from "zod";
 
+const optionalSecret = z.preprocess(
+  (value) => (value === "" ? undefined : value),
+  z.string().min(1).optional(),
+);
+
 const configSchema = z.object({
+  APP_URL: z.url().optional(),
   CLOUD_SQL_INSTANCE: z.string().min(1).optional(),
   DATABASE_URL: z.url(),
   VIDEO_ID: z.uuid(),
@@ -14,6 +20,7 @@ const configSchema = z.object({
     .transform((value) => value === "true"),
   STORAGE_REGION: z.string().min(1).default("auto"),
   STORAGE_SECRET_ACCESS_KEY: z.string().min(1),
+  SLACK_BOT_TOKEN: optionalSecret,
   HLS_THRESHOLD_SECONDS: z.coerce.number().int().positive().default(1_200),
   PROCESSING_TEMP_DIR: z.string().min(1).default("/tmp/screenly"),
 });

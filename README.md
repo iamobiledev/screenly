@@ -99,6 +99,47 @@ revoked without affecting uploaded recordings. `UPLOAD_API_TOKEN` remains as
 an optional bootstrap/recovery credential and should not be installed on team
 devices.
 
+## Processing progress
+
+After upload, the processor reports its current phase, percentage, heartbeat,
+and estimated time remaining to the video record. Transfer estimates use
+observed byte throughput, while ffmpeg estimates use the recording timestamp
+and live encoding speed. The public viewer polls these measurements and updates
+automatically.
+
+The viewer intentionally says **Queued**, **Estimating time**, or **Processor
+update delayed** when it does not have enough current data. It does not invent
+an ETA before the worker has measured the recording. Existing videos and jobs
+created before the progress migration continue to use these fallback states.
+
+## Slack inline playback
+
+Slack only renders inline video from custom providers through an installed
+Slack app; Open Graph video tags alone produce a static preview. Screenly's
+Slack app listens for `link_shared` events and responds with a Block Kit video
+unfurl. Links pasted while a recording is uploading or processing first show a
+status card, then update in place when the worker marks the video ready.
+
+This internal deployment uses one environment-configured Slack installation:
+
+1. Copy `slack-app-manifest.example.yml` and replace every
+   `screenly.example.com` value with the HTTPS hostname in `APP_URL`.
+2. Create a Slack app **from an app manifest**. Copy its signing secret to the
+   web service as `SLACK_SIGNING_SECRET`; URL verification only needs this
+   secret and can run before the app is installed.
+3. Confirm Slack verifies
+   `https://YOUR_HOST/api/integrations/slack/events` as the Events API request
+   URL.
+4. Install the app to the workspace, approve `links:read`, `links:write`, and
+   `links.embed:write`, then store the installed bot token as
+   `SLACK_BOT_TOKEN` on both the web service and processor job.
+
+The unfurl player is `/embed/v/:slug`. It deliberately contains only the video
+player and must remain iframe-compatible: do not add `X-Frame-Options` or a
+`frame-ancestors` policy that excludes Slack. If links stay collapsed, confirm
+the app is installed, the exact share hostname is in **App Unfurl Domains**, and
+the workspace administrator has not blocked previews for that hostname.
+
 ## Users and workspaces
 
 Browser and native-device access use individual username/password accounts.
@@ -226,8 +267,8 @@ gcloud run jobs deploy screenly-processor \
   --tasks 1 \
   --max-retries 3 \
   --task-timeout 3600s \
-  --set-env-vars CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
-  --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
+  --set-env-vars APP_URL=https://screenly.example.com,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
+  --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest
 ```
 
 Deploy the web image as an unauthenticated service so possession of a share
@@ -241,8 +282,8 @@ gcloud run deploy screenly-web \
   --service-account screenly-web@PROJECT_ID.iam.gserviceaccount.com \
   --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --allow-unauthenticated \
-  --set-env-vars PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
-  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest
+  --set-env-vars APP_URL=https://screenly.example.com,PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
+  --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest
 ```
 
 Grant the web service account permission to execute the private job:
@@ -255,7 +296,8 @@ gcloud run jobs add-iam-policy-binding screenly-processor \
 ```
 
 Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
-`UPLOAD_API_TOKEN`, `RESEND_API_KEY`, and HMAC credentials in Secret Manager.
+`UPLOAD_API_TOKEN`, `RESEND_API_KEY`, Slack bot token/signing secret, and HMAC
+credentials in Secret Manager.
 Set `RESEND_FROM_EMAIL` to a verified sender. Apply the committed Drizzle
 migrations through the Cloud SQL Auth Proxy and bootstrap the first owner before
 routing traffic to a schema-dependent revision:
@@ -337,6 +379,7 @@ For Cloud Storage use an `s3://BUCKET/releases` URI, region `auto`, and endpoint
 ## Current verification commands
 
 ```bash
+pnpm test
 pnpm lint
 pnpm typecheck
 pnpm build
