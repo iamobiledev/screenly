@@ -98,6 +98,7 @@ async function main() {
           // understate the full processing time.
           progress.report(measurement.fraction, null);
         },
+        progress.abortSignal,
       );
       await progress.completeStage();
 
@@ -161,6 +162,7 @@ async function main() {
               measurement.etaSeconds,
             );
           },
+          progress.abortSignal,
         );
         await progress.completeStage();
       }
@@ -216,6 +218,7 @@ async function main() {
               progress,
             );
           },
+          progress.abortSignal,
         ),
         storage.uploadFile(
           previewPath,
@@ -229,6 +232,7 @@ async function main() {
               progress,
             );
           },
+          progress.abortSignal,
         ),
       ]);
       await progress.completeStage();
@@ -261,6 +265,7 @@ async function main() {
               measurement.etaSeconds,
             );
           },
+          progress.abortSignal,
         );
         await progress.completeStage();
         hlsManifestObjectKey = `${objectPrefix}/hls/index.m3u8`;
@@ -268,7 +273,7 @@ async function main() {
 
       await progress.beginStage("finalizing");
       progress.report(1, 0, true);
-      await progress.flush();
+      await progress.close();
       await repository.complete({
         videoID: video.id,
         leaseID,
@@ -292,9 +297,15 @@ async function main() {
         }),
       );
     } catch (error) {
-      await progress.flush();
+      progress.stop();
+      let processingError = error;
+      try {
+        await progress.flush();
+      } catch (progressError) {
+        processingError = progressError;
+      }
       if (!processingCompleted) {
-        await repository.fail(video.id, leaseID, error);
+        await repository.fail(video.id, leaseID, processingError);
         await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
           console.error(
             JSON.stringify({
@@ -309,7 +320,7 @@ async function main() {
           );
         });
       }
-      throw error;
+      throw processingError;
     } finally {
       await rm(workDirectory, { recursive: true, force: true });
     }

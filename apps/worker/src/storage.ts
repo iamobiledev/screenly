@@ -46,12 +46,14 @@ export class ObjectStorage {
     key: string,
     destination: string,
     onProgress?: TransferProgressCallback,
+    abortSignal?: AbortSignal,
   ) {
     const response = await this.client.send(
       new GetObjectCommand({
         Bucket: this.bucket,
         Key: key,
       }),
+      { abortSignal },
     );
 
     if (!(response.Body instanceof Readable)) {
@@ -67,6 +69,7 @@ export class ObjectStorage {
     filePath: string,
     key: string,
     onProgress?: TransferProgressCallback,
+    abortSignal?: AbortSignal,
   ) {
     const file = await stat(filePath);
     const counter = createCountingTransform(file.size, onProgress);
@@ -82,6 +85,7 @@ export class ObjectStorage {
         ContentType: contentTypeFor(filePath),
         CacheControl: "public, max-age=31536000, immutable",
       }),
+      { abortSignal },
     );
   }
 
@@ -89,6 +93,7 @@ export class ObjectStorage {
     directoryPath: string,
     keyPrefix: string,
     onProgress?: TransferProgressCallback,
+    abortSignal?: AbortSignal,
   ) {
     const entries = await readdir(directoryPath, {
       recursive: true,
@@ -114,6 +119,7 @@ export class ObjectStorage {
         (transferredBytes) => {
           onProgress?.(completedBytes + transferredBytes, totalBytes);
         },
+        abortSignal,
       );
       completedBytes += file.size;
     }

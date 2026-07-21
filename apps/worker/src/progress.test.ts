@@ -129,4 +129,5 @@ test("progress persistence failures stop the active worker", async () => {
   });
 
   await assert.rejects(reporter.beginStage("downloading"), expected);
+  assert.equal(reporter.abortSignal.aborted, true);
 });

@@ -23,6 +23,7 @@ type ProgressSink = (update: ProgressUpdate) => Promise<void>;
 
 const MINIMUM_SAMPLE_MILLISECONDS = 750;
 const UPDATE_INTERVAL_MILLISECONDS = 1_000;
+const HEARTBEAT_INTERVAL_MILLISECONDS = 10_000;
 const PRELUDE_PROGRESS: Record<"downloading" | "inspecting", [number, number]> =
   {
     downloading: [100, 800],
@@ -86,11 +87,23 @@ export class ProcessingProgressReporter {
   private lastEmittedAt = 0;
   private writes = Promise.resolve();
   private writeError: unknown = null;
+  private readonly abortController = new AbortController();
+  private readonly heartbeat: NodeJS.Timeout;
 
   constructor(
     private readonly sink: ProgressSink,
     private readonly now: () => number = Date.now,
-  ) {}
+  ) {
+    this.heartbeat = setInterval(
+      () => this.emit(true),
+      HEARTBEAT_INTERVAL_MILLISECONDS,
+    );
+    this.heartbeat.unref();
+  }
+
+  get abortSignal() {
+    return this.abortController.signal;
+  }
 
   configurePlan(plan: StageEstimate[]) {
     if (plan.length === 0) {
@@ -145,6 +158,15 @@ export class ProcessingProgressReporter {
     }
   }
 
+  stop() {
+    clearInterval(this.heartbeat);
+  }
+
+  async close() {
+    this.stop();
+    await this.flush();
+  }
+
   private emit(force: boolean) {
     if (this.writeError) {
       return;
@@ -164,6 +186,7 @@ export class ProcessingProgressReporter {
       .then(() => this.sink(snapshot))
       .catch((error: unknown) => {
         this.writeError = error;
+        this.abortController.abort(error);
         console.error(
           JSON.stringify({
             level: "error",
