@@ -106,6 +106,7 @@ export async function authenticateRecorderToken(token: string) {
       id: recorderTokens.id,
       name: recorderTokens.name,
       workspaceId: recorderTokens.workspaceId,
+      createdByUserId: recorderTokens.createdByUserId,
       lastUsedAt: recorderTokens.lastUsedAt,
     })
     .from(recorderTokens)
@@ -135,7 +136,11 @@ export async function authenticateRecorderToken(token: string) {
       ),
     );
 
-  return { name: record.name, workspaceId: record.workspaceId };
+  return {
+    name: record.name,
+    workspaceId: record.workspaceId,
+    createdByUserId: record.createdByUserId,
+  };
 }
 
 function hashToken(token: string) {

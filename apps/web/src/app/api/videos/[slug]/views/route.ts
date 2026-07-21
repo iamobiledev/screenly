@@ -1,13 +1,14 @@
 import { eq, sql } from "drizzle-orm";
 
 import { getDb } from "@/db";
-import { videos } from "@/db/schema";
+import { videos, videoViews } from "@/db/schema";
 import { apiErrorResponse } from "@/lib/api";
+import { getRequestAuth } from "@/lib/session";
 
 export const runtime = "nodejs";
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ slug: string }> },
 ) {
   try {
@@ -24,7 +25,7 @@ export async function POST(
         updatedAt: new Date(),
       })
       .where(eq(videos.slug, slug))
-      .returning({ viewCount: videos.viewCount });
+      .returning({ id: videos.id, viewCount: videos.viewCount });
 
     if (!video) {
       return Response.json(
@@ -38,7 +39,29 @@ export async function POST(
       );
     }
 
-    return Response.json(video);
+    const authentication = await getRequestAuth(request);
+    if (authentication) {
+      const now = new Date();
+      await getDb()
+        .insert(videoViews)
+        .values({
+          videoId: video.id,
+          viewerUserId: authentication.user.id,
+          viewerName: authentication.user.username,
+          firstViewedAt: now,
+          lastViewedAt: now,
+        })
+        .onConflictDoUpdate({
+          target: [videoViews.videoId, videoViews.viewerUserId],
+          set: {
+            viewerName: authentication.user.username,
+            watchCount: sql`${videoViews.watchCount} + 1`,
+            lastViewedAt: now,
+          },
+        });
+    }
+
+    return Response.json({ viewCount: video.viewCount });
   } catch (error) {
     return apiErrorResponse(error);
   }
