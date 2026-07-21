@@ -168,6 +168,7 @@ a {
   border-radius: var(--radius-md);
   font-size: 14px;
   font-weight: 620;
+  white-space: nowrap;
   transition:
     background 150ms ease,
     border-color 150ms ease,
@@ -1106,11 +1107,9 @@ a {
   z-index: 30;
   width: 264px;
   padding: 14px;
-  border: 1px solid rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--line);
   border-radius: var(--radius-md);
-  background: rgba(255, 255, 255, 0.92);
-  backdrop-filter: var(--blur-glass);
-  -webkit-backdrop-filter: var(--blur-glass);
+  background: var(--surface);
   box-shadow: var(--shadow-lg);
   animation: viewers-pop 140ms ease;
 }
@@ -1569,6 +1568,15 @@ a {
     padding: 8px 14px;
   }
 
+  .internal-pill {
+    display: none;
+  }
+
+  .home-nav-actions {
+    gap: 12px;
+    font-size: 12px;
+  }
+
   .home-hero {
     padding: 96px 0 80px;
   }
@@ -1652,6 +1660,20 @@ a {
 
   .library-nav-actions > span {
     display: none;
+  }
+
+  .library-nav .brand {
+    font-size: 0;
+  }
+
+  .library-nav-actions {
+    gap: 12px;
+    font-size: 12px;
+  }
+
+  .library-nav-actions a,
+  .home-nav-actions a {
+    white-space: nowrap;
   }
 
   .token-create-form,
