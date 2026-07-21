@@ -389,13 +389,17 @@ Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`
 (`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
 `GCP_DEPLOY_SERVICE_ACCOUNT`
-(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and
-`CLOUD_SQL_INSTANCE` (`PROJECT_ID:us-central1:screenly`).
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`).
 `CLOUD_RUN_SERVICE` and `CLOUD_RUN_JOB` are optional overrides for the
 default `screenly-web` and `screenly-processor` names. Add the repository
-**secret** `DATABASE_URL` (a `127.0.0.1:5432` connection string, reached
-through the proxy) to enable the automatic migration step; without it,
-migrations are skipped and must be applied manually as described above.
+**secret** `DATABASE_URL` to enable the automatic migration step; without it,
+migrations are skipped and must be applied manually as described above. For
+managed Postgres providers such as Neon, set `DATABASE_URL` to the provider's
+connection string directly. Only when the database is Cloud SQL should the
+`CLOUD_SQL_INSTANCE` variable (`PROJECT_ID:us-central1:screenly`) also be
+configured — the workflow then starts the Cloud SQL Auth Proxy and
+`DATABASE_URL` should point at `127.0.0.1:5432` (the `cloudsql.client` role
+binding above is only required in that case).
 
 The deploy job is skipped entirely until `GCP_PROJECT_ID` is configured, so
 the workflow stays green on forks.

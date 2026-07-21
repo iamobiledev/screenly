@@ -122,24 +122,31 @@ jobs:
             .
           docker push --all-tags "$image"
 
+      # Applies committed Drizzle migrations before the new revision serves
+      # traffic. DATABASE_URL is used directly for managed Postgres providers
+      # (for example Neon); when CLOUD_SQL_INSTANCE is also configured, the
+      # Cloud SQL Auth Proxy is started first and DATABASE_URL should point at
+      # 127.0.0.1:5432.
       - name: Run database migrations
         if: env.DATABASE_URL != ''
         env:
           CLOUD_SQL_INSTANCE: ${{ vars.CLOUD_SQL_INSTANCE }}
         run: |
-          curl --fail --silent --show-error --location --output cloud-sql-proxy \
-            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
-          chmod +x cloud-sql-proxy
-          ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 5432 &
-          proxy_pid=$!
-          trap 'kill "$proxy_pid"' EXIT
-          for _ in $(seq 1 30); do
-            if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
-              exec 3>&-
-              break
-            fi
-            sleep 1
-          done
+          if [[ -n "${CLOUD_SQL_INSTANCE:-}" ]]; then
+            curl --fail --silent --show-error --location --output cloud-sql-proxy \
+              https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
+            chmod +x cloud-sql-proxy
+            ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 5432 &
+            proxy_pid=$!
+            trap 'kill "$proxy_pid"' EXIT
+            for _ in $(seq 1 30); do
+              if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+                exec 3>&-
+                break
+              fi
+              sleep 1
+            done
+          fi
           corepack enable
           pnpm install --frozen-lockfile --filter @screenly/web...
           pnpm db:migrate
