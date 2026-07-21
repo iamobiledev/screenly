@@ -8,15 +8,17 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
-            Section("Account & workspace") {
+            Section {
                 AuthenticationView(appModel: appModel)
                 TextField(
                     "Your display name",
                     text: $appModel.settings.recorderName
                 )
+            } header: {
+                Label("Account & workspace", systemImage: "person.crop.circle")
             }
 
-            Section("Recording defaults") {
+            Section {
                 Toggle(
                     "Capture system audio",
                     isOn: $appModel.settings.capturesSystemAudio
@@ -55,18 +57,22 @@ struct SettingsView: View {
                         }
                     }
                 }
+            } header: {
+                Label("Recording defaults", systemImage: "record.circle")
             }
 
-            Section("Keyboard shortcut") {
+            Section {
                 Picker("Start recording", selection: $appModel.settings.hotkey) {
                     ForEach(HotkeyChoice.allCases) { choice in
                         Text(choice.label).tag(choice)
                     }
                 }
                 .pickerStyle(.segmented)
+            } header: {
+                Label("Keyboard shortcut", systemImage: "keyboard")
             }
 
-            Section("Permissions") {
+            Section {
                 permissionLabel(
                     "Screen Recording",
                     granted: appModel.permissions.canRecordScreen
@@ -83,13 +89,17 @@ struct SettingsView: View {
                     Button("Refresh") {
                         appModel.permissions.refresh()
                     }
+                    .glassButton()
                     Button("Open Privacy Settings") {
                         appModel.permissions.openScreenSettings()
                     }
+                    .glassButton()
                 }
+            } header: {
+                Label("Permissions", systemImage: "lock.shield")
             }
 
-            Section("Advanced") {
+            Section {
                 DisclosureGroup("Manual server configuration") {
                     VStack(alignment: .leading, spacing: 10) {
                         TextField(
@@ -114,6 +124,7 @@ struct SettingsView: View {
                                     apiToken: manualAPIToken
                                 )
                             }
+                            .glassButton()
                             .disabled(
                                 manualServerURL.isEmpty ||
                                     manualAPIToken.isEmpty ||
@@ -123,10 +134,13 @@ struct SettingsView: View {
                     }
                     .padding(.top, 6)
                 }
+            } header: {
+                Label("Advanced", systemImage: "wrench.and.screwdriver")
             }
         }
         .formStyle(.grouped)
-        .padding(12)
+        .scrollContentBackground(.hidden)
+        .glassWindowSurface()
         .frame(width: 560, height: 620)
         .onAppear {
             appModel.permissions.refresh()
