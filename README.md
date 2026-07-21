@@ -174,6 +174,23 @@ with `DELETE`. `POST /api/auth/device/workspace` accepts `workspaceId` and
 `deviceName`, then returns `activeWorkspace` and a newly minted
 workspace-scoped `recorderToken`.
 
+Every member signs in at `/login` (the home, download, and viewer pages all
+link to it) to browse the workspace library, rename or delete recordings, and
+see who watched each one. Videos uploaded through a signed-in recorder are
+attributed to that user, which powers the library's "My recordings" filter.
+
+## Watch analytics
+
+Each `/v/:slug` playback increments the video's total view count. When the
+viewer also has a Screenly session cookie, the view is recorded in the
+`video_views` table (one row per user per video with a watch count and
+last-viewed timestamp). Members can open the view counter on any library card
+to see named viewers; signed-out plays are shown as anonymous views, and no
+viewer identity is collected from people without an account.
+`GET /api/library/videos/:videoId/views` returns
+`{ viewCount, viewers: [{ viewerName, watchCount, lastViewedAt }] }` for
+members of the video's workspace.
+
 ## Database changes
 
 Drizzle migrations live in `apps/web/drizzle`.
@@ -323,10 +340,116 @@ The job probes compatibility, mixes audio when needed, creates MP4, thumbnail,
 animated preview and optional HLS assets, then atomically marks the video
 ready.
 
+## Continuous deployment
+
+Production is split between two platforms:
+
+- **Web app → Vercel.** The `screenly` Vercel project builds `apps/web`
+  (Root Directory `apps/web`) from the Git integration, so every merge to
+  `main` deploys automatically and every pull request gets a preview URL.
+- **Everything else → GitHub Actions.** The `Deploy backend` workflow
+  (`.github/workflows/backend-deploy.yml`) runs on every push to `main`:
+  it verifies the change (`pnpm test`, `lint`, `typecheck`, `build`),
+  applies Drizzle migrations to the production database, optionally triggers
+  the Vercel production deploy through a Deploy Hook (so schema changes land
+  before the new web build), and rebuilds/updates the `screenly-processor`
+  Cloud Run Job when the GCP variables are configured.
+
+### Vercel setup
+
+1. Connect the repository to the `screenly` project (Project Settings → Git).
+2. Add the production environment variables: `DATABASE_URL`,
+   `SESSION_SECRET`, `APP_URL` (the production URL), `STORAGE_BACKEND=gcs`,
+   `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`,
+   `PROCESSOR_MODE=cloud-run-job`, `GCP_PROJECT_ID`, `GCP_REGION`,
+   `GCP_PROCESSOR_JOB`, `GCP_SERVICE_ACCOUNT_KEY`, and optionally
+   `UPLOAD_API_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
+   `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and the `MAC_APP_*` values.
+3. Optional ordering guarantee: create a Deploy Hook (Project Settings →
+   Git → Deploy Hooks), store it as the `VERCEL_DEPLOY_HOOK_URL` repository
+   secret, and turn off automatic production deploys for pushes; the backend
+   workflow then triggers the web deploy only after migrations succeed.
+
+`GCP_SERVICE_ACCOUNT_KEY` is a service account key JSON used to start the
+processing job from outside Google Cloud (on Cloud Run the metadata server is
+used automatically). Create a minimal-scope account:
+
+```bash
+gcloud iam service-accounts create screenly-dispatch
+gcloud run jobs add-iam-policy-binding screenly-processor \
+  --region us-central1 \
+  --member serviceAccount:screenly-dispatch@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/run.jobsExecutorWithOverrides
+gcloud iam service-accounts keys create dispatch-key.json \
+  --iam-account screenly-dispatch@PROJECT_ID.iam.gserviceaccount.com
+```
+
+Paste the contents of `dispatch-key.json` as the `GCP_SERVICE_ACCOUNT_KEY`
+environment variable.
+
+### Backend workflow setup
+
+Add the `DATABASE_URL` repository secret to enable migrations (a managed
+Postgres connection string such as Neon works directly; only Cloud SQL needs
+the extra `CLOUD_SQL_INSTANCE` variable and a `127.0.0.1:5432` URL). To let
+the workflow update the worker image, configure Workload Identity Federation.
+One-time setup:
+
+```bash
+gcloud iam service-accounts create screenly-deployer
+
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/run.admin
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/artifactregistry.writer
+# Only when the database is Cloud SQL:
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/cloudsql.client
+# Allow the deployer to act as the job's runtime service account:
+gcloud iam service-accounts add-iam-policy-binding \
+  JOB_RUNTIME_SA@PROJECT_ID.iam.gserviceaccount.com \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/iam.serviceAccountUser
+
+gcloud iam workload-identity-pools create github \
+  --location global
+gcloud iam workload-identity-pools providers create-oidc github-actions \
+  --location global \
+  --workload-identity-pool github \
+  --issuer-uri https://token.actions.githubusercontent.com \
+  --attribute-mapping google.subject=assertion.sub,attribute.repository=assertion.repository \
+  --attribute-condition "assertion.repository == 'OWNER/screenly'"
+gcloud iam service-accounts add-iam-policy-binding \
+  screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/OWNER/screenly" \
+  --role roles/iam.workloadIdentityUser
+```
+
+Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
+`GCP_REGION` (for example `us-central1`),
+`GCP_WORKLOAD_IDENTITY_PROVIDER`
+(`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
+`GCP_DEPLOY_SERVICE_ACCOUNT`
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and optionally
+`CLOUD_RUN_JOB` to override the default `screenly-processor` name.
+
+The migration job skips itself without the `DATABASE_URL` secret and the
+worker job skips itself until `GCP_PROJECT_ID` is configured, so the
+workflow stays green on forks. The web app can also still be deployed as a
+Cloud Run service from the Docker image (see the previous section) if
+Vercel is not used; the image continues to build with standalone output.
+
 ## macOS build and distribution
 
-The recorder targets macOS 15 and requires Xcode 16.3 or newer. Generate the
-Xcode project from the committed specification:
+The recorder targets macOS 15 and requires Xcode 16.3 or newer. Building with
+the Xcode 26 SDK (macOS 26 Tahoe) additionally enables the native Liquid Glass
+appearance; on macOS 15, and in builds from older SDKs, the interface falls
+back to standard translucent materials. The release workflow runs on
+`macos-26` runners so published builds always include the glass appearance.
+Generate the Xcode project from the committed specification:
 
 ```bash
 brew install xcodegen

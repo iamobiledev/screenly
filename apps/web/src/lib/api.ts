@@ -26,13 +26,18 @@ export async function authenticateUploadRequest(request: Request) {
       return {
         recorderName: null,
         workspaceId: DEFAULT_WORKSPACE_ID,
+        ownerUserId: null,
       };
     }
   }
 
   const recorder = await authenticateRecorderToken(receivedToken);
   return recorder
-    ? { recorderName: recorder.name, workspaceId: recorder.workspaceId }
+    ? {
+        recorderName: recorder.name,
+        workspaceId: recorder.workspaceId,
+        ownerUserId: recorder.createdByUserId,
+      }
     : null;
 }
 

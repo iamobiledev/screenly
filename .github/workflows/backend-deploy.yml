@@ -1,0 +1,177 @@
+# Backend deployment for merges into main.
+#
+# The web app deploys through Vercel's Git integration. This workflow handles
+# everything Vercel does not:
+#   1. verify   — tests, lint, typecheck, build
+#   2. migrate  — applies Drizzle migrations to the production database
+#   3. worker   — builds the ffmpeg worker image and updates the Cloud Run Job
+#
+# Configuration:
+#   Repository secrets:
+#     DATABASE_URL             enables the migration job (Neon or any Postgres
+#                              connection string; for Cloud SQL also set the
+#                              CLOUD_SQL_INSTANCE variable and point the URL
+#                              at 127.0.0.1:5432)
+#     VERCEL_DEPLOY_HOOK_URL   optional; when set, the web deploy is triggered
+#                              only after migrations succeed (disable Vercel's
+#                              automatic production deploys when using this)
+#   Repository variables:
+#     GCP_PROJECT_ID                 enables the worker job
+#     GCP_REGION                     e.g. us-central1
+#     GCP_WORKLOAD_IDENTITY_PROVIDER projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
+#     GCP_DEPLOY_SERVICE_ACCOUNT     deployer service account email
+#     CLOUD_SQL_INSTANCE             only when the database is Cloud SQL
+#     CLOUD_RUN_JOB                  optional, defaults to screenly-processor
+#
+# Jobs skip themselves cleanly while unconfigured, so the workflow stays
+# green on forks and fresh clones.
+
+name: Deploy backend
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: backend-deploy
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    name: Test, lint, and build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Enable pnpm through Corepack
+        run: corepack enable
+
+      - uses: actions/cache@v4
+        with:
+          path: ~/.local/share/pnpm/store
+          key: pnpm-store-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+          restore-keys: pnpm-store-${{ runner.os }}-
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests
+        run: pnpm test
+
+      - name: Lint
+        run: pnpm lint
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Build
+        run: pnpm build
+
+  migrate:
+    name: Apply database migrations
+    needs: verify
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      VERCEL_DEPLOY_HOOK_URL: ${{ secrets.VERCEL_DEPLOY_HOOK_URL }}
+    steps:
+      - uses: actions/checkout@v4
+        if: env.DATABASE_URL != ''
+
+      - uses: actions/setup-node@v4
+        if: env.DATABASE_URL != ''
+        with:
+          node-version: 22
+
+      # Only needed when the database is Cloud SQL. Managed providers such as
+      # Neon are reached directly through DATABASE_URL.
+      - name: Start Cloud SQL Auth Proxy
+        if: env.DATABASE_URL != '' && vars.CLOUD_SQL_INSTANCE != ''
+        env:
+          CLOUD_SQL_INSTANCE: ${{ vars.CLOUD_SQL_INSTANCE }}
+        run: |
+          curl --fail --silent --show-error --location --output cloud-sql-proxy \
+            https://storage.googleapis.com/cloud-sql-connectors/cloud-sql-proxy/v2.14.2/cloud-sql-proxy.linux.amd64
+          chmod +x cloud-sql-proxy
+          nohup ./cloud-sql-proxy "$CLOUD_SQL_INSTANCE" --port 5432 &
+          for _ in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5432) 2>/dev/null; then
+              exec 3>&-
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run migrations
+        if: env.DATABASE_URL != ''
+        run: |
+          corepack enable
+          pnpm install --frozen-lockfile --filter @screenly/web...
+          pnpm db:migrate
+
+      # Optional ordering guarantee: trigger the Vercel production deploy only
+      # after the schema is up to date.
+      - name: Trigger Vercel deployment
+        if: env.VERCEL_DEPLOY_HOOK_URL != ''
+        run: curl --fail --silent --show-error -X POST "$VERCEL_DEPLOY_HOOK_URL"
+
+      - name: Skip note
+        if: env.DATABASE_URL == ''
+        run: echo "DATABASE_URL secret not configured; skipping migrations."
+
+  worker:
+    name: Update processing job
+    needs: migrate
+    if: vars.GCP_PROJECT_ID != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      REGION: ${{ vars.GCP_REGION }}
+      JOB_NAME: ${{ vars.CLOUD_RUN_JOB != '' && vars.CLOUD_RUN_JOB || 'screenly-processor' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker "$REGION-docker.pkg.dev" --quiet
+
+      - name: Build and push worker image
+        run: |
+          image="$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker"
+          docker build \
+            --file apps/worker/Dockerfile \
+            --tag "$image:$GITHUB_SHA" \
+            --tag "$image:latest" \
+            .
+          docker push --all-tags "$image"
+
+      - name: Update processing job
+        run: |
+          gcloud run jobs update "$JOB_NAME" \
+            --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
+            --region "$REGION" \
+            --quiet

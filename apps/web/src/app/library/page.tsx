@@ -1,14 +1,13 @@
-import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { LibraryNav } from "@/components/library-nav";
 import { VideoCard } from "@/components/video-card";
 import { listLibraryVideos } from "@/features/videos/library-service";
+import { getCookieSessionAuth } from "@/lib/session";
 import {
-  getSessionAuth,
-  SESSION_COOKIE_NAME,
-} from "@/lib/session";
-import { listUserWorkspaces } from "@/features/auth/users";
+  canManageWorkspace,
+  listUserWorkspaces,
+} from "@/features/auth/users";
 import Link from "next/link";
 
 export const dynamic = "force-dynamic";
@@ -16,22 +15,25 @@ export const dynamic = "force-dynamic";
 export default async function LibraryPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string | string[] }>;
+  searchParams: Promise<{ q?: string | string[]; mine?: string | string[] }>;
 }) {
-  const cookieStore = await cookies();
-  const authentication = await getSessionAuth(
-    cookieStore.get(SESSION_COOKIE_NAME)?.value,
-  );
+  const authentication = await getCookieSessionAuth();
   if (!authentication) {
     redirect("/login");
   }
 
-  const rawQuery = (await searchParams).q;
+  const { q: rawQuery, mine: rawMine } = await searchParams;
   const query = typeof rawQuery === "string" ? rawQuery.slice(0, 120) : "";
+  const mineOnly = rawMine === "1";
   const [videos, workspaces] = await Promise.all([
-    listLibraryVideos(authentication.workspace.id, query),
+    listLibraryVideos(
+      authentication.workspace.id,
+      query,
+      mineOnly ? authentication.user.id : undefined,
+    ),
     listUserWorkspaces(authentication.user.id),
   ]);
+  const canManage = canManageWorkspace(authentication.workspace.role);
 
   return (
     <main className="library-shell">
@@ -44,23 +46,51 @@ export default async function LibraryPage({
         <div>
           <p className="eyebrow">{authentication.workspace.name}</p>
           <h1>Team recordings</h1>
+          <div className="filter-tabs" role="tablist" aria-label="Filter">
+            <Link
+              aria-current={mineOnly ? undefined : "page"}
+              className={mineOnly ? "" : "is-active"}
+              href={libraryHref(false, query)}
+            >
+              All recordings
+            </Link>
+            <Link
+              aria-current={mineOnly ? "page" : undefined}
+              className={mineOnly ? "is-active" : ""}
+              href={libraryHref(true, query)}
+            >
+              My recordings
+            </Link>
+          </div>
         </div>
-        <form className="search-form">
-          <SearchIcon />
-          <input
-            aria-label="Search recordings"
-            defaultValue={query}
-            name="q"
-            placeholder="Search by title"
-            type="search"
-          />
-        </form>
+        <div className="library-heading-actions">
+          {canManage ? (
+            <Link className="secondary-button" href="/library/members">
+              Invite teammates
+            </Link>
+          ) : null}
+          <form className="search-form">
+            <SearchIcon />
+            <input
+              aria-label="Search recordings"
+              defaultValue={query}
+              name="q"
+              placeholder="Search by title"
+              type="search"
+            />
+            {mineOnly ? <input name="mine" type="hidden" value="1" /> : null}
+          </form>
+        </div>
       </header>
 
       {videos.length > 0 ? (
         <section className="video-grid" aria-label="Recordings">
           {videos.map((video) => (
-            <VideoCard key={video.id} video={video} />
+            <VideoCard
+              currentUserId={authentication.user.id}
+              key={video.id}
+              video={video}
+            />
           ))}
         </section>
       ) : (
@@ -68,21 +98,41 @@ export default async function LibraryPage({
           <span>
             <SearchIcon />
           </span>
-          <h2>{query ? "No matching recordings" : "No recordings yet"}</h2>
+          <h2>
+            {query
+              ? "No matching recordings"
+              : mineOnly
+                ? "No recordings of yours yet"
+                : "No recordings yet"}
+          </h2>
           <p>
             {query
               ? "Try a different title or clear your search."
-              : "Recordings uploaded from the Mac app will appear here."}
+              : mineOnly
+                ? "Recordings you upload from the Mac app while signed in will appear here."
+                : "Recordings uploaded from the Mac app will appear here."}
           </p>
-          {query ? (
+          {query || mineOnly ? (
             <Link className="secondary-button" href="/library">
-              Clear search
+              {query ? "Clear search" : "Show all recordings"}
             </Link>
           ) : null}
         </section>
       )}
     </main>
   );
+}
+
+function libraryHref(mine: boolean, query: string) {
+  const params = new URLSearchParams();
+  if (query) {
+    params.set("q", query);
+  }
+  if (mine) {
+    params.set("mine", "1");
+  }
+  const search = params.toString();
+  return search ? `/library?${search}` : "/library";
 }
 
 function SearchIcon() {

@@ -16,7 +16,9 @@ permissions:
 
 jobs:
   build-notarize-publish:
-    runs-on: macos-15
+    # macOS 26 runners ship the Xcode 26 SDK, which is required for the
+    # recorder to adopt the native Liquid Glass appearance.
+    runs-on: macos-26
     timeout-minutes: 45
     env:
       APPLE_ID: ${{ secrets.APPLE_ID }}

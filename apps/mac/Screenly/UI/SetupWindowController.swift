@@ -25,6 +25,7 @@ final class SetupWindowController {
             defer: false
         )
         window.title = "New Recording"
+        GlassWindowStyler.apply(to: window)
         window.contentView = NSHostingView(rootView: view)
         window.center()
         window.isReleasedWhenClosed = false

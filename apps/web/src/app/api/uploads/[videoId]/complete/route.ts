@@ -15,6 +15,9 @@ import {
 import { dispatchProcessingJob } from "@/lib/processing";
 
 export const runtime = "nodejs";
+// Completing a large multipart upload plus dispatching the processing job can
+// exceed serverless defaults; allow up to a minute on platforms like Vercel.
+export const maxDuration = 60;
 
 const completeUploadSchema = z.object({
   parts: z

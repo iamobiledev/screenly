@@ -65,6 +65,7 @@ export async function POST(request: Request) {
       slug,
       title,
       recorderName: authentication.recorderName ?? input.recorderName,
+      ownerUserId: authentication.ownerUserId,
       sourceObjectKey: objectKey,
       contentType: input.contentType,
       sizeBytes: input.sizeBytes,

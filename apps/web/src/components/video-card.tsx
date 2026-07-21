@@ -4,11 +4,14 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition, type FormEvent } from "react";
 
+import { VideoViewers } from "@/components/video-viewers";
+
 export type LibraryVideo = {
   id: string;
   slug: string;
   title: string;
   recorderName: string;
+  ownerUserId: string | null;
   status: "uploading" | "processing" | "ready" | "failed";
   thumbnailUrl: string | null;
   durationSeconds: number | null;
@@ -16,7 +19,13 @@ export type LibraryVideo = {
   createdAt: string;
 };
 
-export function VideoCard({ video }: { video: LibraryVideo }) {
+export function VideoCard({
+  video,
+  currentUserId,
+}: {
+  video: LibraryVideo;
+  currentUserId?: string;
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [isEditing, setIsEditing] = useState(false);
@@ -110,7 +119,10 @@ export function VideoCard({ video }: { video: LibraryVideo }) {
               {video.title}
             </Link>
             <p>
-              {video.recorderName} · {formatDate(video.createdAt)}
+              {currentUserId && video.ownerUserId === currentUserId
+                ? "You"
+                : video.recorderName}{" "}
+              · {formatDate(video.createdAt)}
             </p>
           </>
         )}
@@ -127,9 +139,7 @@ export function VideoCard({ video }: { video: LibraryVideo }) {
           </div>
         ) : (
           <div className="video-card-actions">
-            <span>
-              {video.viewCount} {video.viewCount === 1 ? "view" : "views"}
-            </span>
+            <VideoViewers videoId={video.id} viewCount={video.viewCount} />
             <button type="button" onClick={() => setIsEditing(true)}>
               Rename
             </button>

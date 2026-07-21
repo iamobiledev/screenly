@@ -1,5 +1,7 @@
 import { z } from "zod";
 
+import { getGoogleAccessToken } from "@/lib/gcp-auth";
+
 const cloudRunConfigSchema = z.object({
   GCP_PROCESSOR_JOB: z.string().min(1),
   GCP_PROJECT_ID: z.string().min(1),
@@ -12,7 +14,7 @@ export async function dispatchProcessingJob(videoID: string) {
   }
 
   const config = cloudRunConfigSchema.parse(process.env);
-  const accessToken = await getMetadataAccessToken();
+  const accessToken = await getGoogleAccessToken();
   const jobPath = [
     "projects",
     encodeURIComponent(config.GCP_PROJECT_ID),
@@ -51,30 +53,4 @@ export async function dispatchProcessingJob(videoID: string) {
   }
 
   return true;
-}
-
-async function getMetadataAccessToken() {
-  const response = await fetch(
-    "http://metadata.google.internal/computeMetadata/v1/instance/service-accounts/default/token",
-    {
-      headers: {
-        "Metadata-Flavor": "Google",
-      },
-      cache: "no-store",
-    },
-  );
-
-  if (!response.ok) {
-    throw new Error(
-      `Could not obtain a Cloud Run identity token (${response.status}).`,
-    );
-  }
-
-  const result = (await response.json()) as {
-    access_token?: unknown;
-  };
-  if (typeof result.access_token !== "string") {
-    throw new Error("The metadata server returned an invalid access token.");
-  }
-  return result.access_token;
 }

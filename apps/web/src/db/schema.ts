@@ -159,6 +159,9 @@ export const videos = pgTable(
     recorderName: varchar("recorder_name", { length: 120 })
       .notNull()
       .default("Screenly user"),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
     status: videoStatus("status").notNull().default("uploading"),
     sourceObjectKey: text("source_object_key").notNull(),
     playbackObjectKey: text("playback_object_key"),
@@ -202,6 +205,38 @@ export const videos = pgTable(
     index("videos_workspace_created_at_index").on(
       table.workspaceId,
       table.createdAt,
+    ),
+    index("videos_owner_user_id_index").on(table.ownerUserId),
+  ],
+);
+
+export const videoViews = pgTable(
+  "video_views",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    videoId: uuid("video_id")
+      .notNull()
+      .references(() => videos.id, { onDelete: "cascade" }),
+    viewerUserId: uuid("viewer_user_id").references(() => users.id, {
+      onDelete: "set null",
+    }),
+    viewerName: varchar("viewer_name", { length: 120 }).notNull(),
+    watchCount: integer("watch_count").notNull().default(1),
+    firstViewedAt: timestamp("first_viewed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    lastViewedAt: timestamp("last_viewed_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => [
+    uniqueIndex("video_views_video_viewer_unique").on(
+      table.videoId,
+      table.viewerUserId,
+    ),
+    index("video_views_video_last_viewed_index").on(
+      table.videoId,
+      table.lastViewedAt,
     ),
   ],
 );

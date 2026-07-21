@@ -18,6 +18,8 @@ FROM base AS builder
 
 WORKDIR /app
 
+ENV NEXT_OUTPUT_STANDALONE=1
+
 COPY --from=dependencies /app/node_modules ./node_modules
 COPY --from=dependencies /app/apps/web/node_modules ./apps/web/node_modules
 COPY . .

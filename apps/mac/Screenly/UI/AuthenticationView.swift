@@ -55,7 +55,8 @@ struct AuthenticationView: View {
                         Text("Sign in")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
+                .tint(Color(red: 0.42, green: 0.34, blue: 0.92))
                 .disabled(
                     appModel.isAuthenticating ||
                         username.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ||
@@ -108,6 +109,7 @@ struct AuthenticationView: View {
                         await appModel.signOut()
                     }
                 }
+                .glassButton()
                 .disabled(
                     appModel.isAuthenticating ||
                         !appModel.canChangeAuthentication

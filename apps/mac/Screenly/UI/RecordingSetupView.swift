@@ -14,7 +14,7 @@ struct RecordingSetupView: View {
     private let regionSelector = RegionSelectionController()
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 20) {
+        VStack(alignment: .leading, spacing: 16) {
             HStack {
                 VStack(alignment: .leading, spacing: 4) {
                     Text("New recording")
@@ -25,7 +25,10 @@ struct RecordingSetupView: View {
                 Spacer()
                 Button("Cancel") { closeWindow() }
                     .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .keyboardShortcut(.cancelAction)
             }
+            .padding(.top, 8)
 
             Picker("Capture mode", selection: $mode) {
                 ForEach(CaptureMode.allCases) { mode in
@@ -38,34 +41,40 @@ struct RecordingSetupView: View {
 
             sourcePicker
                 .frame(minHeight: 170)
+                .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                .glassCard(cornerRadius: 12)
 
-            Divider()
+            VStack(alignment: .leading, spacing: 14) {
+                HStack(spacing: 22) {
+                    Toggle("Microphone", isOn: $settings.capturesMicrophone)
+                    Toggle("System audio", isOn: $settings.capturesSystemAudio)
+                    Toggle("Webcam", isOn: $settings.showsWebcam)
+                }
+                .toggleStyle(.switch)
+                .controlSize(.small)
 
-            HStack(spacing: 22) {
-                Toggle("Microphone", isOn: $settings.capturesMicrophone)
-                Toggle("System audio", isOn: $settings.capturesSystemAudio)
-                Toggle("Webcam", isOn: $settings.showsWebcam)
-            }
-            .toggleStyle(.switch)
-
-            if settings.capturesMicrophone || settings.showsWebcam {
-                HStack(spacing: 14) {
-                    if settings.capturesMicrophone {
-                        devicePicker(
-                            title: "Microphone",
-                            selection: $settings.microphoneDeviceID,
-                            devices: audioDevices
-                        )
-                    }
-                    if settings.showsWebcam {
-                        devicePicker(
-                            title: "Camera",
-                            selection: $settings.cameraDeviceID,
-                            devices: cameraDevices
-                        )
+                if settings.capturesMicrophone || settings.showsWebcam {
+                    HStack(spacing: 14) {
+                        if settings.capturesMicrophone {
+                            devicePicker(
+                                title: "Microphone",
+                                selection: $settings.microphoneDeviceID,
+                                devices: audioDevices
+                            )
+                        }
+                        if settings.showsWebcam {
+                            devicePicker(
+                                title: "Camera",
+                                selection: $settings.cameraDeviceID,
+                                devices: cameraDevices
+                            )
+                        }
                     }
                 }
             }
+            .padding(14)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .glassCard(cornerRadius: 12)
 
             if let errorMessage = sources.errorMessage {
                 Label(errorMessage, systemImage: "exclamationmark.triangle")
@@ -78,17 +87,21 @@ struct RecordingSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 Spacer()
-                Button("Start recording") {
+                Button {
                     start()
+                } label: {
+                    Label("Start recording", systemImage: "record.circle.fill")
                 }
-                .buttonStyle(.borderedProminent)
+                .glassProminentButton()
                 .controlSize(.large)
+                .tint(Color(red: 0.42, green: 0.34, blue: 0.92))
                 .disabled(!canStart)
                 .keyboardShortcut(.return, modifiers: [])
             }
         }
         .padding(24)
         .frame(width: 620)
+        .glassWindowSurface()
         .task {
             await sources.refresh()
             selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
@@ -115,6 +128,7 @@ struct RecordingSetupView: View {
                 .tag(window.id)
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
         } else {
             List(sources.displays, selection: $selectedDisplayID) { display in
                 HStack {
@@ -129,6 +143,7 @@ struct RecordingSetupView: View {
                 .tag(display.id)
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
         }
     }
 
