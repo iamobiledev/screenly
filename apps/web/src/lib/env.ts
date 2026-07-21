@@ -6,6 +6,8 @@ const serverEnvSchema = z.object({
   RESEND_API_KEY: z.string().min(1).optional(),
   RESEND_FROM_EMAIL: z.string().min(1).optional(),
   SESSION_SECRET: z.string().min(32),
+  SLACK_BOT_TOKEN: z.string().min(1).optional(),
+  SLACK_SIGNING_SECRET: z.string().min(1).optional(),
   STORAGE_ACCESS_KEY_ID: z.string().min(1),
   STORAGE_BACKEND: z.enum(["gcs", "s3"]).default("s3"),
   STORAGE_BUCKET: z.string().min(1),

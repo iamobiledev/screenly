@@ -318,6 +318,25 @@ a {
   background: #27282b;
 }
 
+.embed-player {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  overflow: hidden;
+  width: 100vw;
+  height: 100vh;
+  place-items: center;
+  background: #000;
+}
+
+.embed-player video {
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  background: #000;
+}
+
 .processing-panel {
   display: flex;
   max-width: 490px;

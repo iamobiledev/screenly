@@ -25,9 +25,46 @@ export async function generateMetadata({
     return { title: "Video not found" };
   }
 
+  const description = `Watch a recording shared by ${video.recorderName}.`;
+  const canonicalUrl = absoluteAppUrl(`/v/${encodeURIComponent(video.slug)}`);
+
   return {
     title: video.title,
-    description: `Watch a recording shared by ${video.recorderName}.`,
+    description,
+    alternates: canonicalUrl ? { canonical: canonicalUrl } : undefined,
+    openGraph: {
+      type: "website",
+      title: video.title,
+      description,
+      siteName: "Screenly",
+      url: canonicalUrl ?? undefined,
+      images: video.thumbnailUrl
+        ? [
+            {
+              url: video.thumbnailUrl,
+              type: "image/jpeg",
+              alt: `Preview of ${video.title}`,
+            },
+          ]
+        : undefined,
+      videos:
+        video.status === "ready" && video.playbackUrl
+          ? [
+              {
+                url: video.playbackUrl,
+                type: "video/mp4",
+              },
+            ]
+          : undefined,
+    },
+    twitter: video.thumbnailUrl
+      ? {
+          card: "summary_large_image",
+          title: video.title,
+          description,
+          images: [video.thumbnailUrl],
+        }
+      : undefined,
   };
 }
 
@@ -105,6 +142,19 @@ function formatRecordedDate(value: string) {
   return new Intl.DateTimeFormat("en", {
     dateStyle: "medium",
   }).format(new Date(value));
+}
+
+function absoluteAppUrl(pathname: string) {
+  const appUrl = process.env.APP_URL;
+  if (!appUrl) {
+    return null;
+  }
+
+  try {
+    return new URL(pathname, appUrl).toString();
+  } catch {
+    return null;
+  }
 }
 
 function EyeIcon() {
