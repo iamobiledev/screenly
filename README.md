@@ -342,16 +342,58 @@ ready.
 
 ## Continuous deployment
 
-The `Deploy to production` workflow (`.github/workflows/deploy.yml`) runs on
-every push to `main`. It first verifies the change (`pnpm test`, `lint`,
-`typecheck`, `build`), then builds and pushes both Docker images to Artifact
-Registry, optionally applies Drizzle migrations through the Cloud SQL Auth
-Proxy, deploys the new web image to the Cloud Run service (all existing
-environment variables, secrets, and flags are preserved), updates the
-processor job image, and finally checks `/api/health`.
+Production is split between two platforms:
 
-Authentication is keyless through Workload Identity Federation. One-time
-setup:
+- **Web app → Vercel.** The `screenly` Vercel project builds `apps/web`
+  (Root Directory `apps/web`) from the Git integration, so every merge to
+  `main` deploys automatically and every pull request gets a preview URL.
+- **Everything else → GitHub Actions.** The `Deploy backend` workflow
+  (`.github/workflows/backend-deploy.yml`) runs on every push to `main`:
+  it verifies the change (`pnpm test`, `lint`, `typecheck`, `build`),
+  applies Drizzle migrations to the production database, optionally triggers
+  the Vercel production deploy through a Deploy Hook (so schema changes land
+  before the new web build), and rebuilds/updates the `screenly-processor`
+  Cloud Run Job when the GCP variables are configured.
+
+### Vercel setup
+
+1. Connect the repository to the `screenly` project (Project Settings → Git).
+2. Add the production environment variables: `DATABASE_URL`,
+   `SESSION_SECRET`, `APP_URL` (the production URL), `STORAGE_BACKEND=gcs`,
+   `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`,
+   `PROCESSOR_MODE=cloud-run-job`, `GCP_PROJECT_ID`, `GCP_REGION`,
+   `GCP_PROCESSOR_JOB`, `GCP_SERVICE_ACCOUNT_KEY`, and optionally
+   `UPLOAD_API_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
+   `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and the `MAC_APP_*` values.
+3. Optional ordering guarantee: create a Deploy Hook (Project Settings →
+   Git → Deploy Hooks), store it as the `VERCEL_DEPLOY_HOOK_URL` repository
+   secret, and turn off automatic production deploys for pushes; the backend
+   workflow then triggers the web deploy only after migrations succeed.
+
+`GCP_SERVICE_ACCOUNT_KEY` is a service account key JSON used to start the
+processing job from outside Google Cloud (on Cloud Run the metadata server is
+used automatically). Create a minimal-scope account:
+
+```bash
+gcloud iam service-accounts create screenly-dispatch
+gcloud run jobs add-iam-policy-binding screenly-processor \
+  --region us-central1 \
+  --member serviceAccount:screenly-dispatch@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/run.jobsExecutorWithOverrides
+gcloud iam service-accounts keys create dispatch-key.json \
+  --iam-account screenly-dispatch@PROJECT_ID.iam.gserviceaccount.com
+```
+
+Paste the contents of `dispatch-key.json` as the `GCP_SERVICE_ACCOUNT_KEY`
+environment variable.
+
+### Backend workflow setup
+
+Add the `DATABASE_URL` repository secret to enable migrations (a managed
+Postgres connection string such as Neon works directly; only Cloud SQL needs
+the extra `CLOUD_SQL_INSTANCE` variable and a `127.0.0.1:5432` URL). To let
+the workflow update the worker image, configure Workload Identity Federation.
+One-time setup:
 
 ```bash
 gcloud iam service-accounts create screenly-deployer
@@ -362,11 +404,13 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 gcloud projects add-iam-policy-binding PROJECT_ID \
   --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/artifactregistry.writer
+# Only when the database is Cloud SQL:
 gcloud projects add-iam-policy-binding PROJECT_ID \
   --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/cloudsql.client
+# Allow the deployer to act as the job's runtime service account:
 gcloud iam service-accounts add-iam-policy-binding \
-  screenly-web@PROJECT_ID.iam.gserviceaccount.com \
+  JOB_RUNTIME_SA@PROJECT_ID.iam.gserviceaccount.com \
   --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/iam.serviceAccountUser
 
@@ -389,20 +433,14 @@ Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`
 (`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
 `GCP_DEPLOY_SERVICE_ACCOUNT`
-(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`).
-`CLOUD_RUN_SERVICE` and `CLOUD_RUN_JOB` are optional overrides for the
-default `screenly-web` and `screenly-processor` names. Add the repository
-**secret** `DATABASE_URL` to enable the automatic migration step; without it,
-migrations are skipped and must be applied manually as described above. For
-managed Postgres providers such as Neon, set `DATABASE_URL` to the provider's
-connection string directly. Only when the database is Cloud SQL should the
-`CLOUD_SQL_INSTANCE` variable (`PROJECT_ID:us-central1:screenly`) also be
-configured — the workflow then starts the Cloud SQL Auth Proxy and
-`DATABASE_URL` should point at `127.0.0.1:5432` (the `cloudsql.client` role
-binding above is only required in that case).
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and optionally
+`CLOUD_RUN_JOB` to override the default `screenly-processor` name.
 
-The deploy job is skipped entirely until `GCP_PROJECT_ID` is configured, so
-the workflow stays green on forks.
+The migration job skips itself without the `DATABASE_URL` secret and the
+worker job skips itself until `GCP_PROJECT_ID` is configured, so the
+workflow stays green on forks. The web app can also still be deployed as a
+Cloud Run service from the Docker image (see the previous section) if
+Vercel is not used; the image continues to build with standalone output.
 
 ## macOS build and distribution
 
