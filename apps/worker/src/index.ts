@@ -72,7 +72,9 @@ async function main() {
     const thumbnailPath = path.join(workDirectory, "thumbnail.jpg");
     const previewPath = path.join(workDirectory, "preview.webp");
     const hlsDirectory = path.join(workDirectory, "hls");
-    const objectPrefix = `processed/${video.id}`;
+    // Attempt-scoped keys fence object storage as well as the database lease:
+    // a stale worker can never overwrite assets produced by the winning lease.
+    const objectPrefix = `processed/${video.id}/attempts/${leaseID}`;
     let processingCompleted = false;
 
     try {
