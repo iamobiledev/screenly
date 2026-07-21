@@ -128,7 +128,7 @@ export class ObjectStorage {
     onProgress?.(totalBytes, totalBytes);
   }
 
-  async deletePrefix(prefix: string) {
+  async deletePrefix(prefix: string, preservePrefix?: string) {
     let continuationToken: string | undefined;
 
     do {
@@ -141,7 +141,10 @@ export class ObjectStorage {
       );
       const objects =
         result.Contents?.flatMap((object) =>
-          object.Key ? [{ Key: object.Key }] : [],
+          object.Key &&
+          (!preservePrefix || !object.Key.startsWith(preservePrefix))
+            ? [{ Key: object.Key }]
+            : [],
         ) ?? [];
       if (objects.length > 0) {
         const deletion = await this.client.send(

@@ -214,6 +214,25 @@ export class VideoRepository {
     return rows[0]?.status ?? null;
   }
 
+  async isAttemptCommitted(videoID: string, objectPrefix: string) {
+    const pattern = `${objectPrefix}/%`;
+    const rows = await this.sql`
+      select id
+      from videos
+      where id = ${videoID}::uuid
+        and status = 'ready'
+        and (
+          playback_object_key like ${pattern}
+          or thumbnail_object_key like ${pattern}
+          or preview_object_key like ${pattern}
+          or hls_manifest_object_key like ${pattern}
+        )
+      limit 1
+    `;
+
+    return rows.length > 0;
+  }
+
   async listPendingSlackUnfurls(videoID: string) {
     return (await this.sql`
       select

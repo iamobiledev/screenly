@@ -72,12 +72,16 @@ async function main() {
     const thumbnailPath = path.join(workDirectory, "thumbnail.jpg");
     const previewPath = path.join(workDirectory, "preview.webp");
     const hlsDirectory = path.join(workDirectory, "hls");
+    const attemptsPrefix = `processed/${video.id}/attempts`;
     // Attempt-scoped keys fence object storage as well as the database lease:
     // a stale worker can never overwrite assets produced by the winning lease.
-    const objectPrefix = `processed/${video.id}/attempts/${leaseID}`;
+    const objectPrefix = `${attemptsPrefix}/${leaseID}`;
     let processingCompleted = false;
 
     try {
+      await storage.deletePrefix(`${attemptsPrefix}/`).catch((storageError) => {
+        logAttemptCleanupError(video.id, storageError);
+      });
       await mkdir(workDirectory, { recursive: true });
       await progress.beginStage("downloading");
       console.log(
@@ -286,6 +290,11 @@ async function main() {
         durationSeconds: playbackProbe.durationSeconds,
       });
       processingCompleted = true;
+      await storage
+        .deletePrefix(`${attemptsPrefix}/`, `${objectPrefix}/`)
+        .catch((storageError) => {
+          logAttemptCleanupError(video.id, storageError);
+        });
       await slackNotifier?.refreshVideo(video.id);
 
       console.log(
@@ -308,19 +317,22 @@ async function main() {
       }
       if (!processingCompleted) {
         await repository.fail(video.id, leaseID, processingError);
-        await storage.deletePrefix(`${objectPrefix}/`).catch((storageError) => {
-          console.error(
-            JSON.stringify({
-              level: "error",
-              message: "Could not clean up failed processing attempt assets.",
-              videoID: video.id,
-              error:
-                storageError instanceof Error
-                  ? storageError.message
-                  : String(storageError),
-            }),
+        let attemptCommitted = true;
+        try {
+          attemptCommitted = await repository.isAttemptCommitted(
+            video.id,
+            objectPrefix,
           );
-        });
+        } catch (commitCheckError) {
+          logAttemptCleanupError(video.id, commitCheckError);
+        }
+        if (!attemptCommitted) {
+          await storage
+            .deletePrefix(`${objectPrefix}/`)
+            .catch((storageError) => {
+              logAttemptCleanupError(video.id, storageError);
+            });
+        }
         await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
           console.error(
             JSON.stringify({
@@ -360,6 +372,17 @@ function reportAggregateTransfer(
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function logAttemptCleanupError(videoID: string, error: unknown) {
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "Could not clean up stale processing attempt assets.",
+      videoID,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }
 
 main().catch((error) => {
