@@ -174,6 +174,23 @@ with `DELETE`. `POST /api/auth/device/workspace` accepts `workspaceId` and
 `deviceName`, then returns `activeWorkspace` and a newly minted
 workspace-scoped `recorderToken`.
 
+Every member signs in at `/login` (the home, download, and viewer pages all
+link to it) to browse the workspace library, rename or delete recordings, and
+see who watched each one. Videos uploaded through a signed-in recorder are
+attributed to that user, which powers the library's "My recordings" filter.
+
+## Watch analytics
+
+Each `/v/:slug` playback increments the video's total view count. When the
+viewer also has a Screenly session cookie, the view is recorded in the
+`video_views` table (one row per user per video with a watch count and
+last-viewed timestamp). Members can open the view counter on any library card
+to see named viewers; signed-out plays are shown as anonymous views, and no
+viewer identity is collected from people without an account.
+`GET /api/library/videos/:videoId/views` returns
+`{ viewCount, viewers: [{ viewerName, watchCount, lastViewedAt }] }` for
+members of the video's workspace.
+
 ## Database changes
 
 Drizzle migrations live in `apps/web/drizzle`.
@@ -323,10 +340,74 @@ The job probes compatibility, mixes audio when needed, creates MP4, thumbnail,
 animated preview and optional HLS assets, then atomically marks the video
 ready.
 
+## Continuous deployment
+
+The `Deploy to production` workflow (`.github/workflows/deploy.yml`) runs on
+every push to `main`. It first verifies the change (`pnpm test`, `lint`,
+`typecheck`, `build`), then builds and pushes both Docker images to Artifact
+Registry, optionally applies Drizzle migrations through the Cloud SQL Auth
+Proxy, deploys the new web image to the Cloud Run service (all existing
+environment variables, secrets, and flags are preserved), updates the
+processor job image, and finally checks `/api/health`.
+
+Authentication is keyless through Workload Identity Federation. One-time
+setup:
+
+```bash
+gcloud iam service-accounts create screenly-deployer
+
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/run.admin
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/artifactregistry.writer
+gcloud projects add-iam-policy-binding PROJECT_ID \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/cloudsql.client
+gcloud iam service-accounts add-iam-policy-binding \
+  screenly-web@PROJECT_ID.iam.gserviceaccount.com \
+  --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --role roles/iam.serviceAccountUser
+
+gcloud iam workload-identity-pools create github \
+  --location global
+gcloud iam workload-identity-pools providers create-oidc github-actions \
+  --location global \
+  --workload-identity-pool github \
+  --issuer-uri https://token.actions.githubusercontent.com \
+  --attribute-mapping google.subject=assertion.sub,attribute.repository=assertion.repository \
+  --attribute-condition "assertion.repository == 'OWNER/screenly'"
+gcloud iam service-accounts add-iam-policy-binding \
+  screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
+  --member "principalSet://iam.googleapis.com/projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/attribute.repository/OWNER/screenly" \
+  --role roles/iam.workloadIdentityUser
+```
+
+Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
+`GCP_REGION` (for example `us-central1`),
+`GCP_WORKLOAD_IDENTITY_PROVIDER`
+(`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
+`GCP_DEPLOY_SERVICE_ACCOUNT`
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and
+`CLOUD_SQL_INSTANCE` (`PROJECT_ID:us-central1:screenly`).
+`CLOUD_RUN_SERVICE` and `CLOUD_RUN_JOB` are optional overrides for the
+default `screenly-web` and `screenly-processor` names. Add the repository
+**secret** `DATABASE_URL` (a `127.0.0.1:5432` connection string, reached
+through the proxy) to enable the automatic migration step; without it,
+migrations are skipped and must be applied manually as described above.
+
+The deploy job is skipped entirely until `GCP_PROJECT_ID` is configured, so
+the workflow stays green on forks.
+
 ## macOS build and distribution
 
-The recorder targets macOS 15 and requires Xcode 16.3 or newer. Generate the
-Xcode project from the committed specification:
+The recorder targets macOS 15 and requires Xcode 16.3 or newer. Building with
+the Xcode 26 SDK (macOS 26 Tahoe) additionally enables the native Liquid Glass
+appearance; on macOS 15, and in builds from older SDKs, the interface falls
+back to standard translucent materials. The release workflow runs on
+`macos-26` runners so published builds always include the glass appearance.
+Generate the Xcode project from the committed specification:
 
 ```bash
 brew install xcodegen

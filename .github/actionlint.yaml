@@ -1,0 +1,8 @@
+# actionlint's built-in runner list lags behind GitHub's releases.
+# macOS 26 runners are generally available:
+# https://github.blog/changelog/2026-02-26-macos-26-is-now-generally-available-for-github-hosted-runners/
+self-hosted-runner:
+  labels:
+    - macos-26
+    - macos-26-intel
+    - macos-26-xlarge
