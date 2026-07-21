@@ -3,7 +3,7 @@ import { createHmac, timingSafeEqual } from "node:crypto";
 import {
   formatProcessingEta,
   processingStageLabel,
-} from "@/lib/format-processing";
+} from "./format-processing";
 
 const SLACK_SIGNATURE_MAX_AGE_SECONDS = 5 * 60;
 const MAXIMUM_SLACK_ATTEMPTS = 3;

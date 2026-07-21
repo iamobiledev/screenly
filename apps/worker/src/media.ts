@@ -324,7 +324,8 @@ export function parseFfmpegProgress(
   return {
     fraction,
     speed,
-    etaSeconds: speed === null ? null : remainingMediaSeconds / speed,
+    etaSeconds:
+      fraction === 1 ? 0 : speed === null ? null : remainingMediaSeconds / speed,
   };
 }
 
