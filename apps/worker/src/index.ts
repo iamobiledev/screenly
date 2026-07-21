@@ -33,7 +33,15 @@ async function main() {
       : null;
   const leaseID = randomUUID();
   try {
-    const video = await repository.claim(config.VIDEO_ID, leaseID);
+    let video = await repository.claim(config.VIDEO_ID, leaseID);
+
+    for (let attempt = 0; !video && attempt < 7; attempt += 1) {
+      if ((await repository.getVideoStatus(config.VIDEO_ID)) !== "processing") {
+        break;
+      }
+      await sleep(5_000);
+      video = await repository.claim(config.VIDEO_ID, leaseID);
+    }
 
     if (!video) {
       await slackNotifier?.refreshVideo(config.VIDEO_ID);
@@ -103,6 +111,7 @@ async function main() {
       progress.configurePlan(
         createStagePlan({
           durationSeconds: sourceProbe.durationSeconds,
+          sizeBytes: video.sizeBytes,
           needsTranscode: !sourceProbe.isWebCompatible,
           needsHls:
             sourceProbe.durationSeconds >= config.HLS_THRESHOLD_SECONDS,
@@ -321,6 +330,10 @@ function reportAggregateTransfer(
   );
   const measurement = rate.sample(transferredBytes, totalBytes);
   progress.report(measurement.fraction, measurement.etaSeconds);
+}
+
+function sleep(milliseconds: number) {
+  return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
 
 main().catch((error) => {

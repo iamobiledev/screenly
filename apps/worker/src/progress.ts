@@ -85,6 +85,7 @@ export class ProcessingProgressReporter {
   private lastProgressBasisPoints = 0;
   private lastEmittedAt = 0;
   private writes = Promise.resolve();
+  private writeError: unknown = null;
 
   constructor(
     private readonly sink: ProgressSink,
@@ -139,9 +140,16 @@ export class ProcessingProgressReporter {
 
   async flush() {
     await this.writes;
+    if (this.writeError) {
+      throw this.writeError;
+    }
   }
 
   private emit(force: boolean) {
+    if (this.writeError) {
+      return;
+    }
+
     const now = this.now();
     if (
       !force &&
@@ -155,6 +163,7 @@ export class ProcessingProgressReporter {
     this.writes = this.writes
       .then(() => this.sink(snapshot))
       .catch((error: unknown) => {
+        this.writeError = error;
         console.error(
           JSON.stringify({
             level: "error",
@@ -240,10 +249,15 @@ export class ProcessingProgressReporter {
 
 export function createStagePlan(input: {
   durationSeconds: number;
+  sizeBytes: number;
   needsTranscode: boolean;
   needsHls: boolean;
 }): StageEstimate[] {
   const duration = Math.max(1, input.durationSeconds);
+  const sourceMebibytes = Math.max(1, input.sizeBytes / (1_024 * 1_024));
+  const estimatedPlaybackMebibytes = input.needsTranscode
+    ? Math.min(sourceMebibytes, (duration * 2_000_000) / 8 / (1_024 * 1_024))
+    : sourceMebibytes;
   const plan: StageEstimate[] = [];
 
   if (input.needsTranscode) {
@@ -253,7 +267,7 @@ export function createStagePlan(input: {
     });
     plan.push({
       stage: "uploading_playback",
-      estimatedSeconds: 0.5,
+      estimatedSeconds: Math.max(0.5, estimatedPlaybackMebibytes / 25),
     });
   }
 
@@ -270,7 +284,10 @@ export function createStagePlan(input: {
   if (input.needsHls) {
     plan.push({
       stage: "packaging_hls",
-      estimatedSeconds: Math.max(0.5, Math.min(3, duration / 200)),
+      estimatedSeconds: Math.max(
+        0.5,
+        duration / 200 + estimatedPlaybackMebibytes / 25,
+      ),
     });
   }
 

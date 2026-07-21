@@ -2,6 +2,7 @@ import { eq } from "drizzle-orm";
 
 import { getDb } from "@/db";
 import { slackUnfurls, videos } from "@/db/schema";
+import { dispatchProcessingJob } from "@/lib/processing";
 import {
   buildSlackUnfurl,
   chatUnfurl,
@@ -164,6 +165,21 @@ async function unfurlVideoLink(
         updatedAt: new Date(),
       })
       .where(eq(slackUnfurls.id, unfurl.id));
+    if (video.status === "ready") {
+      await dispatchProcessingJob(video.id).catch((dispatchError) => {
+        console.error(
+          JSON.stringify({
+            level: "error",
+            message: "Could not dispatch a Slack unfurl retry.",
+            videoID: video.id,
+            error:
+              dispatchError instanceof Error
+                ? dispatchError.message
+                : String(dispatchError),
+          }),
+        );
+      });
+    }
     throw error;
   }
 }

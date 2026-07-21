@@ -26,6 +26,7 @@ test("stage plan includes only work selected by the probe", () => {
   assert.deepEqual(
     createStagePlan({
       durationSeconds: 120,
+      sizeBytes: 50 * 1_024 * 1_024,
       needsTranscode: false,
       needsHls: false,
     }).map((entry) => entry.stage),
@@ -35,6 +36,7 @@ test("stage plan includes only work selected by the probe", () => {
   assert.deepEqual(
     createStagePlan({
       durationSeconds: 1_500,
+      sizeBytes: 500 * 1_024 * 1_024,
       needsTranscode: true,
       needsHls: true,
     }).map((entry) => entry.stage),
@@ -47,6 +49,27 @@ test("stage plan includes only work selected by the probe", () => {
       "finalizing",
     ],
   );
+});
+
+test("large ready-to-stream files reserve transfer time in the ETA", () => {
+  const small = createStagePlan({
+    durationSeconds: 1_500,
+    sizeBytes: 50 * 1_024 * 1_024,
+    needsTranscode: false,
+    needsHls: true,
+  });
+  const large = createStagePlan({
+    durationSeconds: 1_500,
+    sizeBytes: 5 * 1_024 * 1_024 * 1_024,
+    needsTranscode: false,
+    needsHls: true,
+  });
+
+  const smallHls = small.find((entry) => entry.stage === "packaging_hls");
+  const largeHls = large.find((entry) => entry.stage === "packaging_hls");
+  assert.ok(smallHls);
+  assert.ok(largeHls);
+  assert.ok(largeHls.estimatedSeconds > smallHls.estimatedSeconds);
 });
 
 test("reported progress stays monotonic while ETA includes future stages", async () => {
@@ -97,4 +120,13 @@ test("reported progress stays monotonic while ETA includes future stages", async
     );
     assert.ok(updates[index]!.progressBasisPoints <= 9_900);
   }
+});
+
+test("progress persistence failures stop the active worker", async () => {
+  const expected = new Error("lease lost");
+  const reporter = new ProcessingProgressReporter(async () => {
+    throw expected;
+  });
+
+  await assert.rejects(reporter.beginStage("downloading"), expected);
 });

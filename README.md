@@ -124,14 +124,15 @@ This internal deployment uses one environment-configured Slack installation:
 
 1. Copy `slack-app-manifest.example.yml` and replace every
    `screenly.example.com` value with the HTTPS hostname in `APP_URL`.
-2. Create a Slack app **from an app manifest**, install it to the workspace, and
-   approve `links:read`, `links:write`, and `links.embed:write`.
-3. Store the installed bot token as `SLACK_BOT_TOKEN` on both the web service
-   and processor job. Store the app signing secret as `SLACK_SIGNING_SECRET` on
-   the web service only.
-4. Confirm Slack verifies
+2. Create a Slack app **from an app manifest**. Copy its signing secret to the
+   web service as `SLACK_SIGNING_SECRET`; URL verification only needs this
+   secret and can run before the app is installed.
+3. Confirm Slack verifies
    `https://YOUR_HOST/api/integrations/slack/events` as the Events API request
    URL.
+4. Install the app to the workspace, approve `links:read`, `links:write`, and
+   `links.embed:write`, then store the installed bot token as
+   `SLACK_BOT_TOKEN` on both the web service and processor job.
 
 The unfurl player is `/embed/v/:slug`. It deliberately contains only the video
 player and must remain iframe-compatible: do not add `X-Frame-Options` or a

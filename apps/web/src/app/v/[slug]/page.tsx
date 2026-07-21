@@ -27,6 +27,14 @@ export async function generateMetadata({
 
   const description = `Watch a recording shared by ${video.recorderName}.`;
   const canonicalUrl = absoluteAppUrl(`/v/${encodeURIComponent(video.slug)}`);
+  const metadataThumbnailUrl =
+    absoluteAppUrl(
+      `/api/videos/${encodeURIComponent(video.slug)}/thumbnail`,
+    ) ?? video.thumbnailUrl;
+  const metadataPlaybackUrl =
+    absoluteAppUrl(
+      `/api/videos/${encodeURIComponent(video.slug)}/playback`,
+    ) ?? video.playbackUrl;
 
   return {
     title: video.title,
@@ -38,31 +46,31 @@ export async function generateMetadata({
       description,
       siteName: "Screenly",
       url: canonicalUrl ?? undefined,
-      images: video.thumbnailUrl
+      images: metadataThumbnailUrl
         ? [
             {
-              url: video.thumbnailUrl,
+              url: metadataThumbnailUrl,
               type: "image/jpeg",
               alt: `Preview of ${video.title}`,
             },
           ]
         : undefined,
       videos:
-        video.status === "ready" && video.playbackUrl
+        video.status === "ready" && metadataPlaybackUrl
           ? [
               {
-                url: video.playbackUrl,
+                url: metadataPlaybackUrl,
                 type: "video/mp4",
               },
             ]
           : undefined,
     },
-    twitter: video.thumbnailUrl
+    twitter: metadataThumbnailUrl
       ? {
           card: "summary_large_image",
           title: video.title,
           description,
-          images: [video.thumbnailUrl],
+          images: [metadataThumbnailUrl],
         }
       : undefined,
   };

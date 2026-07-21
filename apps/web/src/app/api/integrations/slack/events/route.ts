@@ -8,6 +8,8 @@ import { verifySlackRequest } from "@/lib/slack";
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
+const MAXIMUM_SLACK_BODY_BYTES = 1_000_000;
+
 const urlVerificationSchema = z.object({
   type: z.literal("url_verification"),
   challenge: z.string().min(1).max(1_000),
@@ -35,7 +37,7 @@ const eventCallbackSchema = z.object({
 
 export async function POST(request: Request) {
   const env = getServerEnv();
-  if (!env.SLACK_SIGNING_SECRET || !env.SLACK_BOT_TOKEN || !env.APP_URL) {
+  if (!env.SLACK_SIGNING_SECRET || !env.APP_URL) {
     return Response.json(
       {
         error: {
@@ -47,7 +49,19 @@ export async function POST(request: Request) {
     );
   }
 
-  const body = await request.text();
+  const body = await readLimitedBody(request);
+  if (body === null) {
+    return Response.json(
+      {
+        error: {
+          code: "slack_payload_too_large",
+          message: "The Slack request body is too large.",
+        },
+      },
+      { status: 413 },
+    );
+  }
+
   if (
     !verifySlackRequest({
       body,
@@ -87,6 +101,18 @@ export async function POST(request: Request) {
     return Response.json({ challenge: verification.data.challenge });
   }
 
+  if (!env.SLACK_BOT_TOKEN) {
+    return Response.json(
+      {
+        error: {
+          code: "slack_not_installed",
+          message: "The Slack app has not been installed.",
+        },
+      },
+      { status: 503 },
+    );
+  }
+
   const callback = eventCallbackSchema.safeParse(payload);
   if (!callback.success) {
     return Response.json(
@@ -119,4 +145,36 @@ export async function POST(request: Request) {
   );
 
   return new Response(null, { status: 200 });
+}
+
+async function readLimitedBody(request: Request) {
+  const declaredLength = Number(request.headers.get("content-length"));
+  if (
+    Number.isFinite(declaredLength) &&
+    declaredLength > MAXIMUM_SLACK_BODY_BYTES
+  ) {
+    return null;
+  }
+  if (!request.body) {
+    return "";
+  }
+
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let totalBytes = 0;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) {
+      break;
+    }
+    totalBytes += value.byteLength;
+    if (totalBytes > MAXIMUM_SLACK_BODY_BYTES) {
+      await reader.cancel();
+      return null;
+    }
+    chunks.push(value);
+  }
+
+  return Buffer.concat(chunks).toString("utf8");
 }

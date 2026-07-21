@@ -29,6 +29,13 @@ export type PendingSlackUnfurl = {
   sharedUrl: string;
 };
 
+export class ProcessingLeaseLostError extends Error {
+  constructor(videoID: string) {
+    super(`Processing lease lost for video ${videoID}.`);
+    this.name = "ProcessingLeaseLostError";
+  }
+}
+
 export class VideoRepository {
   private readonly sql: Sql;
 
@@ -51,7 +58,7 @@ export class VideoRepository {
         status = 'processing',
         processing_error = null,
         processing_lease_id = ${leaseID}::uuid,
-        processing_lease_expires_at = now() + interval '2 hours',
+        processing_lease_expires_at = now() + interval '30 seconds',
         processing_stage = 'downloading',
         processing_progress = 100,
         processing_eta_seconds = null,
@@ -84,31 +91,41 @@ export class VideoRepository {
     progressBasisPoints: number;
     etaSeconds: number | null;
   }) {
-    await this.sql`
+    const rows = await this.sql`
       update videos
       set
         processing_stage = ${input.stage},
         processing_progress = ${input.progressBasisPoints},
         processing_eta_seconds = ${input.etaSeconds},
         processing_heartbeat_at = now(),
+        processing_lease_expires_at = now() + interval '30 seconds',
         updated_at = now()
       where id = ${input.videoID}::uuid
         and processing_lease_id = ${input.leaseID}::uuid
         and status = 'processing'
+      returning id
     `;
+    if (rows.length === 0) {
+      throw new ProcessingLeaseLostError(input.videoID);
+    }
   }
 
   async setDuration(videoID: string, leaseID: string, durationSeconds: number) {
-    await this.sql`
+    const rows = await this.sql`
       update videos
       set
         duration_seconds = ${Math.round(durationSeconds)},
         processing_heartbeat_at = now(),
+        processing_lease_expires_at = now() + interval '30 seconds',
         updated_at = now()
       where id = ${videoID}::uuid
         and processing_lease_id = ${leaseID}::uuid
         and status = 'processing'
+      returning id
     `;
+    if (rows.length === 0) {
+      throw new ProcessingLeaseLostError(videoID);
+    }
   }
 
   async complete(input: {
@@ -120,7 +137,7 @@ export class VideoRepository {
     hlsManifestObjectKey: string | null;
     durationSeconds: number;
   }) {
-    await this.sql`
+    const rows = await this.sql`
       update videos
       set
         status = 'ready',
@@ -140,7 +157,11 @@ export class VideoRepository {
         updated_at = now()
       where id = ${input.videoID}::uuid
         and processing_lease_id = ${input.leaseID}::uuid
+      returning id
     `;
+    if (rows.length === 0) {
+      throw new ProcessingLeaseLostError(input.videoID);
+    }
   }
 
   async fail(videoID: string, leaseID: string, error: unknown) {
@@ -178,6 +199,19 @@ export class VideoRepository {
     `) as unknown as SlackVideo[];
 
     return rows[0] ?? null;
+  }
+
+  async getVideoStatus(videoID: string) {
+    const rows = (await this.sql`
+      select status
+      from videos
+      where id = ${videoID}::uuid
+      limit 1
+    `) as unknown as Array<{
+      status: "uploading" | "processing" | "ready" | "failed";
+    }>;
+
+    return rows[0]?.status ?? null;
   }
 
   async listPendingSlackUnfurls(videoID: string) {
