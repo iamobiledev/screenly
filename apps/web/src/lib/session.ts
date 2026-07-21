@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto";
 
 import { eq } from "drizzle-orm";
+import { cookies } from "next/headers";
 
 import { getDb } from "@/db";
 import { users, type WorkspaceRole } from "@/db/schema";
@@ -86,6 +87,15 @@ export function verifySessionToken(token: string | undefined) {
   } catch {
     return null;
   }
+}
+
+/**
+ * Reads the session from the request cookies of the current server
+ * component render. Returns null for signed-out visitors.
+ */
+export async function getCookieSessionAuth() {
+  const cookieStore = await cookies();
+  return getSessionAuth(cookieStore.get(SESSION_COOKIE_NAME)?.value);
 }
 
 export async function getRequestAuth(request: Request) {

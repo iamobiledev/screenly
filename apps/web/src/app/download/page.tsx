@@ -1,11 +1,13 @@
 import Link from "next/link";
 
 import { getMacRelease } from "@/lib/release";
+import { getCookieSessionAuth } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
-export default function DownloadPage() {
+export default async function DownloadPage() {
   const release = getMacRelease();
+  const authentication = await getCookieSessionAuth();
 
   return (
     <main className="download-shell">
@@ -16,7 +18,9 @@ export default function DownloadPage() {
           </span>
           Screenly
         </Link>
-        <Link href="/library">Team library</Link>
+        <Link className="nav-cta" href={authentication ? "/library" : "/login"}>
+          {authentication ? "Open library" : "Sign in"}
+        </Link>
       </nav>
 
       <section className="download-card">

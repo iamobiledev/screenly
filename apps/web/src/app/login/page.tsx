@@ -1,19 +1,13 @@
-import { cookies } from "next/headers";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { LoginForm } from "@/components/login-form";
-import {
-  getSessionAuth,
-  SESSION_COOKIE_NAME,
-} from "@/lib/session";
+import { getCookieSessionAuth } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
 
 export default async function LoginPage() {
-  const cookieStore = await cookies();
-
-  if (
-    await getSessionAuth(cookieStore.get(SESSION_COOKIE_NAME)?.value)
-  ) {
+  if (await getCookieSessionAuth()) {
     redirect("/library");
   }
 
@@ -27,9 +21,16 @@ export default async function LoginPage() {
       </Link>
       <section className="login-card">
         <p className="eyebrow">Team access</p>
-        <h1>Open your library</h1>
-        <p>Sign in with the account created from your workspace invitation.</p>
+        <h1>Sign in to Screenly</h1>
+        <p>
+          Open your library to watch, rename, and share recordings — and see
+          who watched them.
+        </p>
         <LoginForm />
+        <p className="login-footnote">
+          No account yet? Ask a workspace admin to send you an invitation from
+          the Members page.
+        </p>
       </section>
     </main>
   );

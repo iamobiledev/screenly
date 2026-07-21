@@ -8,6 +8,7 @@ import { ProcessingState } from "@/components/processing-state";
 import { VideoPlayer } from "@/components/video-player";
 import { ViewTracker } from "@/components/view-tracker";
 import { getPublicVideoBySlug } from "@/features/videos/video-service";
+import { getCookieSessionAuth } from "@/lib/session";
 
 export const dynamic = "force-dynamic";
 
@@ -82,7 +83,10 @@ export default async function VideoPage({
   params: Promise<{ slug: string }>;
 }) {
   const { slug } = await params;
-  const video = await getVideo(slug);
+  const [video, authentication] = await Promise.all([
+    getVideo(slug),
+    getCookieSessionAuth(),
+  ]);
 
   if (!video) {
     notFound();
@@ -97,7 +101,15 @@ export default async function VideoPage({
           </span>
           Screenly
         </Link>
-        <CopyLinkButton />
+        <div className="viewer-header-actions">
+          <Link
+            className="quiet-link"
+            href={authentication ? "/library" : "/login"}
+          >
+            {authentication ? "Open library" : "Sign in"}
+          </Link>
+          <CopyLinkButton />
+        </div>
       </header>
 
       <section className="viewer-content">

@@ -1,6 +1,12 @@
 import Link from "next/link";
 
-export default function Home() {
+import { getCookieSessionAuth } from "@/lib/session";
+
+export const dynamic = "force-dynamic";
+
+export default async function Home() {
+  const authentication = await getCookieSessionAuth();
+
   return (
     <main className="home-shell">
       <nav className="home-nav">
@@ -11,8 +17,17 @@ export default function Home() {
           Screenly
         </div>
         <div className="home-nav-actions">
-          <Link href="/library">Team library</Link>
+          <Link href="/download">Download</Link>
           <span className="internal-pill">Internal preview</span>
+          {authentication ? (
+            <Link className="nav-cta" href="/library">
+              Open library
+            </Link>
+          ) : (
+            <Link className="nav-cta" href="/login">
+              Sign in
+            </Link>
+          )}
         </div>
       </nav>
 
