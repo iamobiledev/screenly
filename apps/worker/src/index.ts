@@ -16,17 +16,27 @@ import {
   ProcessingProgressReporter,
   TransferRateEstimator,
 } from "./progress.js";
+import { SlackNotifier } from "./slack.js";
 import { ObjectStorage } from "./storage.js";
 
 async function main() {
   const config = getConfig();
   const repository = new VideoRepository(config);
   const storage = new ObjectStorage(config);
+  const slackNotifier =
+    config.APP_URL && config.SLACK_BOT_TOKEN
+      ? new SlackNotifier(
+          repository,
+          config.APP_URL,
+          config.SLACK_BOT_TOKEN,
+        )
+      : null;
   const leaseID = randomUUID();
   try {
     const video = await repository.claim(config.VIDEO_ID, leaseID);
 
     if (!video) {
+      await slackNotifier?.refreshVideo(config.VIDEO_ID);
       console.log(
         JSON.stringify({
           level: "info",
@@ -55,6 +65,7 @@ async function main() {
     const previewPath = path.join(workDirectory, "preview.webp");
     const hlsDirectory = path.join(workDirectory, "hls");
     const objectPrefix = `processed/${video.id}`;
+    let processingCompleted = false;
 
     try {
       await mkdir(workDirectory, { recursive: true });
@@ -259,6 +270,8 @@ async function main() {
         hlsManifestObjectKey,
         durationSeconds: playbackProbe.durationSeconds,
       });
+      processingCompleted = true;
+      await slackNotifier?.refreshVideo(video.id);
 
       console.log(
         JSON.stringify({
@@ -272,7 +285,22 @@ async function main() {
       );
     } catch (error) {
       await progress.flush();
-      await repository.fail(video.id, leaseID, error);
+      if (!processingCompleted) {
+        await repository.fail(video.id, leaseID, error);
+        await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
+          console.error(
+            JSON.stringify({
+              level: "error",
+              message: "Could not update failed Slack video unfurls.",
+              videoID: video.id,
+              error:
+                slackError instanceof Error
+                  ? slackError.message
+                  : String(slackError),
+            }),
+          );
+        });
+      }
       throw error;
     } finally {
       await rm(workDirectory, { recursive: true, force: true });

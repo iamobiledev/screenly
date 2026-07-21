@@ -12,6 +12,23 @@ export type VideoJob = {
   sizeBytes: number;
 };
 
+export type SlackVideo = {
+  id: string;
+  slug: string;
+  title: string;
+  recorderName: string;
+  status: "ready" | "failed";
+};
+
+export type PendingSlackUnfurl = {
+  id: string;
+  channelId: string;
+  messageTs: string;
+  unfurlId: string | null;
+  source: string | null;
+  sharedUrl: string;
+};
+
 export class VideoRepository {
   private readonly sql: Sql;
 
@@ -143,6 +160,80 @@ export class VideoRepository {
         updated_at = now()
       where id = ${videoID}::uuid
         and processing_lease_id = ${leaseID}::uuid
+    `;
+  }
+
+  async getSlackVideo(videoID: string) {
+    const rows = (await this.sql`
+      select
+        id,
+        slug,
+        title,
+        recorder_name as "recorderName",
+        status
+      from videos
+      where id = ${videoID}::uuid
+        and status in ('ready', 'failed')
+      limit 1
+    `) as unknown as SlackVideo[];
+
+    return rows[0] ?? null;
+  }
+
+  async listPendingSlackUnfurls(videoID: string) {
+    return (await this.sql`
+      select
+        id,
+        channel_id as "channelId",
+        message_ts as "messageTs",
+        unfurl_id as "unfurlId",
+        source,
+        shared_url as "sharedUrl"
+      from slack_unfurls
+      where video_id = ${videoID}::uuid
+        and final_delivered_at is null
+      order by created_at asc
+    `) as unknown as PendingSlackUnfurl[];
+  }
+
+  async markSlackUnfurlAttempt(unfurlID: string) {
+    await this.sql`
+      update slack_unfurls
+      set
+        last_attempt_at = now(),
+        updated_at = now()
+      where id = ${unfurlID}::uuid
+    `;
+  }
+
+  async markSlackUnfurlDelivered(
+    unfurlID: string,
+    status: "ready" | "failed",
+  ) {
+    await this.sql`
+      update slack_unfurls
+      set
+        last_video_status = ${status}::video_status,
+        final_delivered_at = case
+          when ${status} = 'ready' then now()
+          else final_delivered_at
+        end,
+        last_error = null,
+        updated_at = now()
+      where id = ${unfurlID}::uuid
+    `;
+  }
+
+  async markSlackUnfurlFailed(unfurlID: string, error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown Slack unfurl failure";
+
+    await this.sql`
+      update slack_unfurls
+      set
+        last_error = ${message.slice(0, 2_000)},
+        updated_at = now()
+      where id = ${unfurlID}::uuid
     `;
   }
 
