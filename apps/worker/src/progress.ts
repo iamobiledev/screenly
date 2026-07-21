@@ -240,12 +240,10 @@ export class ProcessingProgressReporter {
 
 export function createStagePlan(input: {
   durationSeconds: number;
-  sizeBytes: number;
   needsTranscode: boolean;
   needsHls: boolean;
 }): StageEstimate[] {
   const duration = Math.max(1, input.durationSeconds);
-  const sizeMebibytes = Math.max(1, input.sizeBytes / (1_024 * 1_024));
   const plan: StageEstimate[] = [];
 
   if (input.needsTranscode) {
@@ -255,28 +253,28 @@ export function createStagePlan(input: {
     });
     plan.push({
       stage: "uploading_playback",
-      estimatedSeconds: Math.max(2, sizeMebibytes / 25),
+      estimatedSeconds: 0.5,
     });
   }
 
   plan.push({
     stage: "generating_preview",
-    estimatedSeconds: Math.max(3, Math.min(15, duration / 6)),
+    estimatedSeconds: 0.75,
   });
 
   plan.push({
     stage: "uploading_assets",
-    estimatedSeconds: Math.max(2, sizeMebibytes / 40),
+    estimatedSeconds: 0.25,
   });
 
   if (input.needsHls) {
     plan.push({
       stage: "packaging_hls",
-      estimatedSeconds: Math.max(3, duration / 20),
+      estimatedSeconds: Math.max(0.5, Math.min(3, duration / 200)),
     });
   }
 
-  plan.push({ stage: "finalizing", estimatedSeconds: 1 });
+  plan.push({ stage: "finalizing", estimatedSeconds: 0.25 });
 
   return plan;
 }

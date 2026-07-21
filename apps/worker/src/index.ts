@@ -103,7 +103,6 @@ async function main() {
       progress.configurePlan(
         createStagePlan({
           durationSeconds: sourceProbe.durationSeconds,
-          sizeBytes: video.sizeBytes,
           needsTranscode: !sourceProbe.isWebCompatible,
           needsHls:
             sourceProbe.durationSeconds >= config.HLS_THRESHOLD_SECONDS,

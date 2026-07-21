@@ -26,7 +26,6 @@ test("stage plan includes only work selected by the probe", () => {
   assert.deepEqual(
     createStagePlan({
       durationSeconds: 120,
-      sizeBytes: 50 * 1_024 * 1_024,
       needsTranscode: false,
       needsHls: false,
     }).map((entry) => entry.stage),
@@ -36,7 +35,6 @@ test("stage plan includes only work selected by the probe", () => {
   assert.deepEqual(
     createStagePlan({
       durationSeconds: 1_500,
-      sizeBytes: 500 * 1_024 * 1_024,
       needsTranscode: true,
       needsHls: true,
     }).map((entry) => entry.stage),
