@@ -16,7 +16,7 @@ without configuring external services.
 apps/
   web/        Next.js App Router UI and HTTP API
   mac/        Native Swift/SwiftUI menu bar recorder
-  worker/     TypeScript ffmpeg Cloud Run Job
+  worker/     TypeScript ffmpeg worker-pool / one-shot processor
 ```
 
 Production is designed around:
@@ -24,7 +24,8 @@ Production is designed around:
 - **Cloud Run service:** public Next.js viewer and authenticated upload API
 - **Cloud SQL for PostgreSQL:** video metadata, tokens, and processing leases
 - **Cloud Storage:** source recordings and processed media
-- **Cloud Run Job:** isolated ffmpeg processing, triggered after upload
+- **Cloud Run worker pool:** one warm ffmpeg processor that claims completed
+  uploads from PostgreSQL without a per-video cold start
 - **macOS distribution:** signed and notarized universal DMG from the web
   application’s download page
 
@@ -107,6 +108,11 @@ observed byte throughput, while ffmpeg estimates use the recording timestamp
 and live encoding speed. The public viewer polls these measurements and updates
 automatically.
 
+In production, an always-on Cloud Run worker pool polls for completed uploads
+and normally claims one within `WORKER_POLL_INTERVAL_MS` (one second by
+default). The older Cloud Run Job mode remains available when scaling to zero
+is more important than startup latency.
+
 The viewer intentionally says **Queued**, **Estimating time**, or **Processor
 update delayed** when it does not have enough current data. It does not invent
 an ETA before the worker has measured the recording. Existing videos and jobs
@@ -132,7 +138,7 @@ This internal deployment uses one environment-configured Slack installation:
    URL.
 4. Install the app to the workspace, approve `links:read`, `links:write`, and
    `links.embed:write`, then store the installed bot token as
-   `SLACK_BOT_TOKEN` on both the web service and processor job.
+   `SLACK_BOT_TOKEN` on both the web service and processor runtime.
 
 The unfurl player is `/embed/v/:slug`. It deliberately contains only the video
 player and must remain iframe-compatible: do not add `X-Frame-Options` or a
@@ -228,8 +234,8 @@ VIDEO_ID=<database-video-uuid> docker compose --profile processor run --rm worke
 
 ## Google Cloud
 
-The production runtime uses Cloud Run, Cloud SQL for PostgreSQL, Cloud Storage,
-Artifact Registry, Secret Manager, and a Cloud Run Job. Enable their APIs:
+The production runtime uses a Cloud Run worker pool, Cloud SQL for PostgreSQL,
+Cloud Storage, Artifact Registry, and Secret Manager. Enable their APIs:
 
 ```bash
 gcloud services enable \
@@ -268,25 +274,35 @@ secret in Secret Manager as `storage-access-key-id` and
 presigned multipart protocol; Cloud Run's attached identity alone cannot sign
 those S3-compatible requests.
 
-Create separate runtime service accounts for the web service and processor job.
-Grant both `roles/cloudsql.client`; grant the web identity
-`roles/run.jobsExecutorWithOverrides` on the processor job. Give both identities
-Secret Manager access only to the secrets they consume.
+Create separate runtime service accounts for the web service and processor.
+Grant both `roles/cloudsql.client`, and give each identity Secret Manager access
+only to the secrets it consumes.
 
-Create the processor job first:
+Create one warm processor with a Cloud Run worker pool. Worker pools perform
+continuous non-HTTP work and do not scale automatically; `--instances 1` keeps
+one processor ready instead of provisioning a new container for every video:
 
 ```bash
-gcloud run jobs deploy screenly-processor \
+gcloud run worker-pools deploy screenly-processor-pool \
   --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker:latest \
   --region us-central1 \
   --service-account screenly-processor@PROJECT_ID.iam.gserviceaccount.com \
   --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
-  --tasks 1 \
-  --max-retries 3 \
-  --task-timeout 3600s \
-  --set-env-vars APP_URL=https://screenly.example.com,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
+  --instances 1 \
+  --cpu 1 \
+  --memory 512Mi \
+  --set-env-vars APP_URL=https://screenly.example.com,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200,WORKER_POLL_INTERVAL_MS=1000,PROCESSING_MAX_ATTEMPTS=4 \
   --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest
 ```
+
+Do not set `VIDEO_ID` on the worker pool. Without it, the worker continuously
+claims the oldest completed upload. Start with the same CPU and memory that are
+known to process recordings successfully, then tune those limits from Cloud
+Monitoring if needed. Google Cloud's current pricing example for one
+1-vCPU/512-MiB worker-pool instance in a standard region is about $11.61 per
+month after its listed free tier; actual region, account-wide free-tier usage,
+and resource limits change that amount. Every additional instance adds
+parallel processing capacity and continuous cost.
 
 Deploy the web image as an unauthenticated service so possession of a share
 link is sufficient to watch a recording:
@@ -299,18 +315,34 @@ gcloud run deploy screenly-web \
   --service-account screenly-web@PROJECT_ID.iam.gserviceaccount.com \
   --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --allow-unauthenticated \
-  --set-env-vars APP_URL=https://screenly.example.com,PROCESSOR_MODE=cloud-run-job,GCP_PROJECT_ID=PROJECT_ID,GCP_REGION=us-central1,GCP_PROCESSOR_JOB=screenly-processor,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
+  --set-env-vars APP_URL=https://screenly.example.com,PROCESSOR_MODE=worker-pool,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME \
   --set-secrets DATABASE_URL=database-url:latest,SESSION_SECRET=session-secret:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest,SLACK_SIGNING_SECRET=slack-signing-secret:latest
 ```
 
-Grant the web service account permission to execute the private job:
+For a lower idle bill at the cost of a cold start for every recording, retain
+the one-shot Cloud Run Job mode instead:
 
 ```bash
+gcloud run jobs deploy screenly-processor \
+  --image us-central1-docker.pkg.dev/PROJECT_ID/screenly/worker:latest \
+  --region us-central1 \
+  --service-account screenly-processor@PROJECT_ID.iam.gserviceaccount.com \
+  --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
+  --tasks 1 \
+  --max-retries 3 \
+  --task-timeout 3600s \
+  --set-env-vars APP_URL=https://screenly.example.com,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
+  --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest
+
 gcloud run jobs add-iam-policy-binding screenly-processor \
   --region us-central1 \
   --member serviceAccount:screenly-web@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/run.jobsExecutorWithOverrides
 ```
+
+Set the web environment to `PROCESSOR_MODE=cloud-run-job`,
+`GCP_PROJECT_ID`, `GCP_REGION`, and `GCP_PROCESSOR_JOB` when using this
+fallback.
 
 Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
 `UPLOAD_API_TOKEN`, `RESEND_API_KEY`, Slack bot token/signing secret, and HMAC
@@ -332,13 +364,15 @@ pnpm user:bootstrap
 
 The service health endpoint is `/api/health`. Set
 `DATABASE_MAX_CONNECTIONS` conservatively per Cloud Run instance (the default
-is 5); the processor job always uses one connection.
+is 5); each processor instance uses one connection.
 
-Each job receives one `VIDEO_ID` override from the web service. A database
-lease prevents duplicate Cloud Run executions from processing the same video.
-The job probes compatibility, mixes audio when needed, creates MP4, thumbnail,
-animated preview and optional HLS assets, then atomically marks the video
-ready.
+The worker pool atomically claims queued rows with PostgreSQL
+`FOR UPDATE SKIP LOCKED`. Database leases prevent duplicate instances from
+processing the same video and recover work after an interrupted instance. The
+processor probes compatibility, mixes audio when needed, creates MP4,
+thumbnail, animated preview and optional HLS assets, then atomically marks the
+video ready. A one-shot job receives a `VIDEO_ID` override and uses the same
+pipeline.
 
 ## Continuous deployment
 
@@ -353,7 +387,8 @@ Production is split between two platforms:
   applies Drizzle migrations to the production database, optionally triggers
   the Vercel production deploy through a Deploy Hook (so schema changes land
   before the new web build), and rebuilds/updates the `screenly-processor`
-  Cloud Run Job when the GCP variables are configured.
+  worker image. When `CLOUD_RUN_WORKER_POOL` is configured it updates that
+  warm pool; otherwise it preserves the one-shot Cloud Run Job deployment.
 
 ### Vercel setup
 
@@ -361,8 +396,7 @@ Production is split between two platforms:
 2. Add the production environment variables: `DATABASE_URL`,
    `SESSION_SECRET`, `APP_URL` (the production URL), `STORAGE_BACKEND=gcs`,
    `STORAGE_BUCKET`, `STORAGE_ACCESS_KEY_ID`, `STORAGE_SECRET_ACCESS_KEY`,
-   `PROCESSOR_MODE=cloud-run-job`, `GCP_PROJECT_ID`, `GCP_REGION`,
-   `GCP_PROCESSOR_JOB`, `GCP_SERVICE_ACCOUNT_KEY`, and optionally
+   `PROCESSOR_MODE=worker-pool`, and optionally
    `UPLOAD_API_TOKEN`, `RESEND_API_KEY`, `RESEND_FROM_EMAIL`,
    `SLACK_BOT_TOKEN`, `SLACK_SIGNING_SECRET`, and the `MAC_APP_*` values.
 3. Optional ordering guarantee: create a Deploy Hook (Project Settings →
@@ -370,9 +404,11 @@ Production is split between two platforms:
    secret, and turn off automatic production deploys for pushes; the backend
    workflow then triggers the web deploy only after migrations succeed.
 
-`GCP_SERVICE_ACCOUNT_KEY` is a service account key JSON used to start the
-processing job from outside Google Cloud (on Cloud Run the metadata server is
-used automatically). Create a minimal-scope account:
+The worker-pool mode needs no Google dispatch credentials in the web
+application. Only the Cloud Run Job fallback needs `GCP_PROJECT_ID`,
+`GCP_REGION`, `GCP_PROCESSOR_JOB`, and a `GCP_SERVICE_ACCOUNT_KEY` service
+account key JSON when the web app runs outside Google Cloud. Create that
+minimal-scope fallback account with:
 
 ```bash
 gcloud iam service-accounts create screenly-dispatch
@@ -384,8 +420,8 @@ gcloud iam service-accounts keys create dispatch-key.json \
   --iam-account screenly-dispatch@PROJECT_ID.iam.gserviceaccount.com
 ```
 
-Paste the contents of `dispatch-key.json` as the `GCP_SERVICE_ACCOUNT_KEY`
-environment variable.
+Paste the contents of `dispatch-key.json` as `GCP_SERVICE_ACCOUNT_KEY` only
+when `PROCESSOR_MODE=cloud-run-job`.
 
 ### Backend workflow setup
 
@@ -397,7 +433,7 @@ the workflow update the worker image, set the `GCP_PROJECT_ID` and
 
 - **Service account key (simplest):** create a `screenly-deployer` service
   account with `roles/run.admin` and `roles/artifactregistry.writer` on the
-  project plus `roles/iam.serviceAccountUser` on the job's runtime service
+  project plus `roles/iam.serviceAccountUser` on the processor's runtime service
   account, then store its key JSON as the `GCP_DEPLOYER_KEY` repository
   secret.
 - **Workload Identity Federation (keyless):** configure the pool/provider
@@ -417,9 +453,9 @@ gcloud projects add-iam-policy-binding PROJECT_ID \
 gcloud projects add-iam-policy-binding PROJECT_ID \
   --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/cloudsql.client
-# Allow the deployer to act as the job's runtime service account:
+# Allow the deployer to act as the processor's runtime service account:
 gcloud iam service-accounts add-iam-policy-binding \
-  JOB_RUNTIME_SA@PROJECT_ID.iam.gserviceaccount.com \
+  PROCESSOR_RUNTIME_SA@PROJECT_ID.iam.gserviceaccount.com \
   --member serviceAccount:screenly-deployer@PROJECT_ID.iam.gserviceaccount.com \
   --role roles/iam.serviceAccountUser
 
@@ -443,13 +479,32 @@ Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
 (`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
 `GCP_DEPLOY_SERVICE_ACCOUNT`
 (`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and optionally
-`CLOUD_RUN_JOB` to override the default `screenly-processor` name.
+`CLOUD_RUN_WORKER_POOL=screenly-processor-pool`. If the pool variable is
+absent, `CLOUD_RUN_JOB` can override the fallback job name
+`screenly-processor`.
 
 The migration job skips itself without the `DATABASE_URL` secret and the
 worker job skips itself until `GCP_PROJECT_ID` is configured, so the
 workflow stays green on forks. The web app can also still be deployed as a
 Cloud Run service from the Docker image (see the previous section) if
 Vercel is not used; the image continues to build with standalone output.
+
+### Migrating from the processing job
+
+Use this order to avoid interrupting uploads:
+
+1. Deploy `screenly-processor-pool` with one instance and the same image,
+   service account, Cloud SQL connection, storage settings, and secrets as the
+   existing job.
+2. Confirm the pool stays running and logs `Warm processing worker pool
+   started.`
+3. Set the `CLOUD_RUN_WORKER_POOL` repository variable so later backend
+   deployments update the pool.
+4. Change the web service to `PROCESSOR_MODE=worker-pool` and redeploy it.
+5. Upload a short canary and compare `uploaded_at` with
+   `processing_started_at`; an idle pool should begin within a few seconds.
+6. Keep the job for a short rollback window. Once validated, it can be removed
+   and the web identity's job-execution permission can be revoked.
 
 ## macOS build and distribution
 
@@ -458,6 +513,8 @@ the Xcode 26 SDK (macOS 26 Tahoe) additionally enables the native Liquid Glass
 appearance; on macOS 15, and in builds from older SDKs, the interface falls
 back to standard translucent materials. The release workflow runs on
 `macos-26` runners so published builds always include the glass appearance.
+Recorder code changes, including automatic browser navigation after Stop, do
+not reach installed Macs until a new DMG is built and published.
 Generate the Xcode project from the committed specification:
 
 ```bash
