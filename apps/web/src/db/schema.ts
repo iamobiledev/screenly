@@ -210,6 +210,16 @@ export const videos = pgTable(
   ],
 );
 
+export const videoProcessingAttempts = pgTable("video_processing_attempts", {
+  videoId: uuid("video_id")
+    .primaryKey()
+    .references(() => videos.id, { onDelete: "cascade" }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
+
 export const videoViews = pgTable(
   "video_views",
   {

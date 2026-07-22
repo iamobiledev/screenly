@@ -43,6 +43,13 @@
       "when": 1784663463373,
       "tag": "0005_cynical_rawhide_kid",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1784692041885,
+      "tag": "0006_harsh_moira_mactaggert",
+      "breakpoints": true
     }
   ]
 }

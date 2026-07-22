@@ -16,6 +16,7 @@ final class RecordingController: ObservableObject {
     private var elapsedTimer: Timer?
     private var currentFileURL: URL?
     private var activeUploadTask: Task<Void, Never>?
+    private var finishingTask: Task<Void, Never>?
 
     init(
         settings: RecorderSettings,
@@ -110,12 +111,17 @@ final class RecordingController: ObservableObject {
         stopElapsedTimer()
         state = .finishing
 
-        Task { [weak self] in
+        finishingTask?.cancel()
+        finishingTask = Task { [weak self] in
             guard let self else { return }
+            defer { finishingTask = nil }
             do {
                 let fileURL = try await engine.stop()
                 currentFileURL = fileURL
-                beginUpload(fileURL: fileURL)
+                try Task.checkCancellation()
+                beginUpload(fileURL: fileURL, opensSharePage: true)
+            } catch is CancellationError {
+                return
             } catch {
                 state = .failed(message: error.localizedDescription)
             }
@@ -123,14 +129,20 @@ final class RecordingController: ObservableObject {
     }
 
     func discard() {
+        let wasFinishing = state == .finishing
+        let pendingFinishingTask = finishingTask
+        pendingFinishingTask?.cancel()
+        finishingTask = nil
         activeUploadTask?.cancel()
         stopElapsedTimer()
         let client = makeClient()
 
         Task { [weak self] in
             guard let self else { return }
-            if state == .recording || state == .paused || state == .finishing {
+            if state == .recording || state == .paused {
                 _ = try? await engine.stop()
+            } else if wasFinishing {
+                await pendingFinishingTask?.value
             }
             if let currentFileURL {
                 if let client {
@@ -157,7 +169,7 @@ final class RecordingController: ObservableObject {
         guard case .failed = state, let currentFileURL else {
             return
         }
-        beginUpload(fileURL: currentFileURL)
+        beginUpload(fileURL: currentFileURL, opensSharePage: false)
     }
 
     func updateWebcamFrame(_ frame: CGRect) {
@@ -174,11 +186,11 @@ final class RecordingController: ObservableObject {
             let files = await uploader.pendingFiles(for: client)
             guard let file = files.first else { return }
             currentFileURL = file
-            beginUpload(fileURL: file)
+            beginUpload(fileURL: file, opensSharePage: false)
         }
     }
 
-    private func beginUpload(fileURL: URL) {
+    private func beginUpload(fileURL: URL, opensSharePage: Bool) {
         guard let client = makeClient() else {
             state = .failed(message: "The upload server is not configured.")
             return
@@ -194,7 +206,10 @@ final class RecordingController: ObservableObject {
                     recorderName: settings.recorderName
                 ) { receipt in
                     Task { @MainActor [weak self] in
-                        self?.copyToClipboard(receipt.shareURL)
+                        self?.handleUploadInitiated(
+                            receipt,
+                            opensSharePage: opensSharePage
+                        )
                     }
                 } onProgress: { progress in
                     Task { @MainActor [weak self] in
@@ -267,10 +282,19 @@ final class RecordingController: ObservableObject {
         elapsedTimer = nil
     }
 
-    private func copyToClipboard(_ url: URL) {
+    private func handleUploadInitiated(
+        _ receipt: UploadReceipt,
+        opensSharePage: Bool
+    ) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        NSPasteboard.general.setString(
+            receipt.shareURL.absoluteString,
+            forType: .string
+        )
         state = .uploading(progress: 0)
+        if opensSharePage {
+            NSWorkspace.shared.open(receipt.shareURL)
+        }
     }
 
     private func handleCaptureError(_ error: Error) {

@@ -10,6 +10,8 @@ export type VideoJob = {
   sourceObjectKey: string;
   contentType: string;
   sizeBytes: number;
+  queuedAt: Date | null;
+  processingAttempts: number;
 };
 
 export type SlackVideo = {
@@ -51,8 +53,37 @@ export class VideoRepository {
     });
   }
 
-  async claim(videoID: string, leaseID: string) {
+  async claim(videoID: string, leaseID: string, maxAttempts: number) {
     const rows = (await this.sql`
+      with candidate as (
+        select videos.id
+        from videos
+        left join video_processing_attempts
+          on video_processing_attempts.video_id = videos.id
+        where videos.id = ${videoID}::uuid
+          and videos.status in ('processing', 'failed')
+          and coalesce(video_processing_attempts.attempt_count, 0) < ${maxAttempts}
+          and (
+            videos.processing_lease_id is null
+            or videos.processing_lease_expires_at < now()
+          )
+        for update of videos skip locked
+      ),
+      attempt as (
+        insert into video_processing_attempts as attempts (
+          video_id,
+          attempt_count,
+          updated_at
+        )
+        select id, 1, now()
+        from candidate
+        on conflict (video_id) do update
+        set
+          attempt_count = attempts.attempt_count + 1,
+          updated_at = now()
+        where attempts.attempt_count < ${maxAttempts}
+        returning video_id, attempt_count
+      )
       update videos
       set
         status = 'processing',
@@ -65,23 +96,137 @@ export class VideoRepository {
         processing_started_at = now(),
         processing_heartbeat_at = now(),
         updated_at = now()
-      where id = ${videoID}::uuid
-        and status in ('processing', 'failed')
-        and (
-          processing_lease_id is null
-          or processing_lease_expires_at < now()
-        )
+      from attempt
+      where videos.id = attempt.video_id
       returning
-        id,
-        slug,
-        title,
-        recorder_name as "recorderName",
-        source_object_key as "sourceObjectKey",
-        content_type as "contentType",
-        size_bytes::double precision as "sizeBytes"
+        videos.id,
+        videos.slug,
+        videos.title,
+        videos.recorder_name as "recorderName",
+        videos.source_object_key as "sourceObjectKey",
+        videos.content_type as "contentType",
+        videos.size_bytes::double precision as "sizeBytes",
+        videos.uploaded_at as "queuedAt",
+        attempt.attempt_count as "processingAttempts"
     `) as unknown as VideoJob[];
 
     return rows[0] ?? null;
+  }
+
+  async claimNext(leaseID: string, maxAttempts: number) {
+    const rows = (await this.sql`
+      with candidate as (
+        select videos.id
+        from videos
+        left join video_processing_attempts
+          on video_processing_attempts.video_id = videos.id
+        where videos.status = 'processing'
+          and coalesce(video_processing_attempts.attempt_count, 0) < ${maxAttempts}
+          and (
+            videos.processing_lease_id is null
+            or videos.processing_lease_expires_at < now()
+          )
+        order by
+          coalesce(videos.uploaded_at, videos.created_at) asc,
+          videos.created_at asc
+        for update of videos skip locked
+        limit 1
+      ),
+      attempt as (
+        insert into video_processing_attempts as attempts (
+          video_id,
+          attempt_count,
+          updated_at
+        )
+        select id, 1, now()
+        from candidate
+        on conflict (video_id) do update
+        set
+          attempt_count = attempts.attempt_count + 1,
+          updated_at = now()
+        where attempts.attempt_count < ${maxAttempts}
+        returning video_id, attempt_count
+      )
+      update videos
+      set
+        processing_error = null,
+        processing_lease_id = ${leaseID}::uuid,
+        processing_lease_expires_at = now() + interval '30 seconds',
+        processing_stage = 'downloading',
+        processing_progress = 100,
+        processing_eta_seconds = null,
+        processing_started_at = now(),
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      from attempt
+      where videos.id = attempt.video_id
+      returning
+        videos.id,
+        videos.slug,
+        videos.title,
+        videos.recorder_name as "recorderName",
+        videos.source_object_key as "sourceObjectKey",
+        videos.content_type as "contentType",
+        videos.size_bytes::double precision as "sizeBytes",
+        videos.uploaded_at as "queuedAt",
+        attempt.attempt_count as "processingAttempts"
+    `) as unknown as VideoJob[];
+
+    return rows[0] ?? null;
+  }
+
+  async releaseForRetry(videoID: string, leaseID: string, error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown processing failure";
+    const rows = await this.sql`
+      update videos
+      set
+        status = 'processing',
+        processing_error = ${message.slice(0, 4_000)},
+        processing_lease_id = null,
+        processing_lease_expires_at = null,
+        processing_stage = 'queued',
+        processing_progress = 0,
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      where id = ${videoID}::uuid
+        and processing_lease_id = ${leaseID}::uuid
+        and status = 'processing'
+      returning id
+    `;
+    if (rows.length === 0) {
+      throw new ProcessingLeaseLostError(videoID);
+    }
+  }
+
+  async failExhausted(maxAttempts: number) {
+    const rows = await this.sql`
+      update videos
+      set
+        status = 'failed',
+        processing_error = coalesce(
+          processing_error,
+          'Processing stopped before an attempt could complete.'
+        ),
+        processing_lease_id = null,
+        processing_lease_expires_at = null,
+        processing_stage = 'failed',
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      from video_processing_attempts
+      where videos.id = video_processing_attempts.video_id
+        and videos.status = 'processing'
+        and video_processing_attempts.attempt_count >= ${maxAttempts}
+        and (
+          videos.processing_lease_id is null
+          or videos.processing_lease_expires_at < now()
+        )
+      returning videos.id
+    `;
+
+    return rows.map((row) => String(row.id));
   }
 
   async updateProgress(input: {
