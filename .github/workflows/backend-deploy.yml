@@ -18,10 +18,13 @@
 #   Repository variables:
 #     GCP_PROJECT_ID                 enables the worker job
 #     GCP_REGION                     e.g. us-central1
-#     GCP_WORKLOAD_IDENTITY_PROVIDER projects/<number>/locations/global/workloadIdentityPools/<pool>/providers/<provider>
-#     GCP_DEPLOY_SERVICE_ACCOUNT     deployer service account email
 #     CLOUD_SQL_INSTANCE             only when the database is Cloud SQL
 #     CLOUD_RUN_JOB                  optional, defaults to screenly-processor
+#
+#   Google authentication — either:
+#     GCP_DEPLOYER_KEY secret        service account key JSON (simplest), or
+#     GCP_WORKLOAD_IDENTITY_PROVIDER + GCP_DEPLOY_SERVICE_ACCOUNT variables
+#                                    for keyless Workload Identity Federation
 #
 # Jobs skip themselves cleanly while unconfigured, so the workflow stays
 # green on forks and fresh clones.
@@ -143,10 +146,19 @@ jobs:
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: ${{ vars.GCP_REGION }}
       JOB_NAME: ${{ vars.CLOUD_RUN_JOB != '' && vars.CLOUD_RUN_JOB || 'screenly-processor' }}
+      GCP_DEPLOYER_KEY: ${{ secrets.GCP_DEPLOYER_KEY }}
     steps:
       - uses: actions/checkout@v4
 
-      - name: Authenticate to Google Cloud
+      - name: Authenticate to Google Cloud (service account key)
+        if: env.GCP_DEPLOYER_KEY != ''
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_DEPLOYER_KEY }}
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: env.GCP_DEPLOYER_KEY == ''
         uses: google-github-actions/auth@v3
         with:
           project_id: ${{ vars.GCP_PROJECT_ID }}
