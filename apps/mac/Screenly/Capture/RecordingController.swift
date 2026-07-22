@@ -115,7 +115,7 @@ final class RecordingController: ObservableObject {
             do {
                 let fileURL = try await engine.stop()
                 currentFileURL = fileURL
-                beginUpload(fileURL: fileURL)
+                beginUpload(fileURL: fileURL, opensSharePage: true)
             } catch {
                 state = .failed(message: error.localizedDescription)
             }
@@ -157,7 +157,7 @@ final class RecordingController: ObservableObject {
         guard case .failed = state, let currentFileURL else {
             return
         }
-        beginUpload(fileURL: currentFileURL)
+        beginUpload(fileURL: currentFileURL, opensSharePage: false)
     }
 
     func updateWebcamFrame(_ frame: CGRect) {
@@ -174,11 +174,11 @@ final class RecordingController: ObservableObject {
             let files = await uploader.pendingFiles(for: client)
             guard let file = files.first else { return }
             currentFileURL = file
-            beginUpload(fileURL: file)
+            beginUpload(fileURL: file, opensSharePage: false)
         }
     }
 
-    private func beginUpload(fileURL: URL) {
+    private func beginUpload(fileURL: URL, opensSharePage: Bool) {
         guard let client = makeClient() else {
             state = .failed(message: "The upload server is not configured.")
             return
@@ -194,7 +194,10 @@ final class RecordingController: ObservableObject {
                     recorderName: settings.recorderName
                 ) { receipt in
                     Task { @MainActor [weak self] in
-                        self?.copyToClipboard(receipt.shareURL)
+                        self?.handleUploadInitiated(
+                            receipt,
+                            opensSharePage: opensSharePage
+                        )
                     }
                 } onProgress: { progress in
                     Task { @MainActor [weak self] in
@@ -267,10 +270,19 @@ final class RecordingController: ObservableObject {
         elapsedTimer = nil
     }
 
-    private func copyToClipboard(_ url: URL) {
+    private func handleUploadInitiated(
+        _ receipt: UploadReceipt,
+        opensSharePage: Bool
+    ) {
         NSPasteboard.general.clearContents()
-        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+        NSPasteboard.general.setString(
+            receipt.shareURL.absoluteString,
+            forType: .string
+        )
         state = .uploading(progress: 0)
+        if opensSharePage {
+            NSWorkspace.shared.open(receipt.shareURL)
+        }
     }
 
     private func handleCaptureError(_ error: Error) {
