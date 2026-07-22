@@ -173,6 +173,7 @@ export const videos = pgTable(
     durationSeconds: integer("duration_seconds"),
     multipartUploadId: text("multipart_upload_id"),
     processingError: text("processing_error"),
+    processingAttempts: integer("processing_attempts").notNull().default(0),
     processingDispatchedAt: timestamp("processing_dispatched_at", {
       withTimezone: true,
     }),

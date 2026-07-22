@@ -1,0 +1,1 @@
+ALTER TABLE "videos" ADD COLUMN "processing_attempts" integer DEFAULT 0 NOT NULL;

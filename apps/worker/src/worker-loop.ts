@@ -113,6 +113,13 @@ export async function runWorkerLoop<Work>(
   }
 }
 
+export function isFinalProcessingAttempt(
+  processingAttempts: number,
+  maxAttempts: number,
+) {
+  return processingAttempts >= maxAttempts;
+}
+
 function retryDelay(pollIntervalMs: number, failedAttempt: number) {
   return Math.min(30_000, pollIntervalMs * 2 ** (failedAttempt - 1));
 }

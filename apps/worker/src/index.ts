@@ -18,7 +18,11 @@ import {
 } from "./progress.js";
 import { SlackNotifier } from "./slack.js";
 import { ObjectStorage } from "./storage.js";
-import { runWorkerLoop, type WorkerLoopEvent } from "./worker-loop.js";
+import {
+  isFinalProcessingAttempt,
+  runWorkerLoop,
+  type WorkerLoopEvent,
+} from "./worker-loop.js";
 
 async function main() {
   const config = getConfig();
@@ -57,14 +61,22 @@ async function runSingleVideo(config: WorkerConfig, videoID: string) {
   const { repository, slackNotifier } = context;
   try {
     const leaseID = randomUUID();
-    let video = await repository.claim(videoID, leaseID);
+    let video = await repository.claim(
+      videoID,
+      leaseID,
+      config.PROCESSING_MAX_ATTEMPTS,
+    );
 
     for (let attempt = 0; !video && attempt < 7; attempt += 1) {
       if ((await repository.getVideoStatus(videoID)) !== "processing") {
         break;
       }
       await sleep(5_000);
-      video = await repository.claim(videoID, leaseID);
+      video = await repository.claim(
+        videoID,
+        leaseID,
+        config.PROCESSING_MAX_ATTEMPTS,
+      );
     }
 
     if (!video) {
@@ -87,7 +99,7 @@ async function runSingleVideo(config: WorkerConfig, videoID: string) {
 
 async function runWorkerPool(config: WorkerConfig) {
   const context = createProcessorContext(config);
-  const { repository } = context;
+  const { repository, slackNotifier } = context;
   const shutdown = new AbortController();
   const requestShutdown = () => shutdown.abort();
   process.once("SIGINT", requestShutdown);
@@ -105,8 +117,21 @@ async function runWorkerPool(config: WorkerConfig) {
   try {
     await runWorkerLoop<ClaimedVideo>({
       claim: async () => {
+        const exhaustedVideoIDs = await repository.failExhausted(
+          config.PROCESSING_MAX_ATTEMPTS,
+        );
+        await Promise.all(
+          exhaustedVideoIDs.map((videoID) =>
+            slackNotifier?.refreshVideo(videoID).catch((error) => {
+              logSlackRefreshError(videoID, error);
+            }),
+          ),
+        );
         const leaseID = randomUUID();
-        const video = await repository.claimNext(leaseID);
+        const video = await repository.claimNext(
+          leaseID,
+          config.PROCESSING_MAX_ATTEMPTS,
+        );
         if (!video) {
           return null;
         }
@@ -122,7 +147,11 @@ async function runWorkerPool(config: WorkerConfig) {
       },
       reclaim: async (work) => {
         const leaseID = randomUUID();
-        const video = await repository.claim(work.video.id, leaseID);
+        const video = await repository.claim(
+          work.video.id,
+          leaseID,
+          config.PROCESSING_MAX_ATTEMPTS,
+        );
         if (!video) {
           return null;
         }
@@ -408,7 +437,23 @@ async function processClaimedVideo(
         processingError = progressError;
       }
       if (!processingCompleted) {
-        await repository.fail(video.id, leaseID, processingError);
+        const isFinalAttempt = isFinalProcessingAttempt(
+          video.processingAttempts,
+          config.PROCESSING_MAX_ATTEMPTS,
+        );
+        try {
+          if (isFinalAttempt) {
+            await repository.fail(video.id, leaseID, processingError);
+          } else {
+            await repository.releaseForRetry(
+              video.id,
+              leaseID,
+              processingError,
+            );
+          }
+        } catch (transitionError) {
+          processingError = transitionError;
+        }
         let attemptCommitted = true;
         try {
           attemptCommitted = await repository.isAttemptCommitted(
@@ -425,19 +470,11 @@ async function processClaimedVideo(
               logAttemptCleanupError(video.id, storageError);
             });
         }
-        await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
-          console.error(
-            JSON.stringify({
-              level: "error",
-              message: "Could not update failed Slack video unfurls.",
-              videoID: video.id,
-              error:
-                slackError instanceof Error
-                  ? slackError.message
-                  : String(slackError),
-            }),
-          );
-        });
+        if (isFinalAttempt) {
+          await slackNotifier?.refreshVideo(video.id).catch((slackError) => {
+            logSlackRefreshError(video.id, slackError);
+          });
+        }
       }
       throw processingError;
     } finally {
@@ -453,6 +490,7 @@ function logClaim(video: VideoJob, retry = false) {
         ? "Retrying video in warm processing worker."
         : "Claimed video in warm processing worker.",
       videoID: video.id,
+      processingAttempt: video.processingAttempts,
       queueLatencyMs: video.queuedAt
         ? Math.max(0, Date.now() - video.queuedAt.getTime())
         : null,
@@ -507,6 +545,17 @@ function reportAggregateTransfer(
 
 function sleep(milliseconds: number) {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+function logSlackRefreshError(videoID: string, error: unknown) {
+  console.error(
+    JSON.stringify({
+      level: "error",
+      message: "Could not update failed Slack video unfurls.",
+      videoID,
+      error: error instanceof Error ? error.message : String(error),
+    }),
+  );
 }
 
 function logAttemptCleanupError(videoID: string, error: unknown) {

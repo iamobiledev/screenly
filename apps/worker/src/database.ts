@@ -11,6 +11,7 @@ export type VideoJob = {
   contentType: string;
   sizeBytes: number;
   queuedAt: Date | null;
+  processingAttempts: number;
 };
 
 export type SlackVideo = {
@@ -52,12 +53,13 @@ export class VideoRepository {
     });
   }
 
-  async claim(videoID: string, leaseID: string) {
+  async claim(videoID: string, leaseID: string, maxAttempts: number) {
     const rows = (await this.sql`
       update videos
       set
         status = 'processing',
         processing_error = null,
+        processing_attempts = processing_attempts + 1,
         processing_lease_id = ${leaseID}::uuid,
         processing_lease_expires_at = now() + interval '30 seconds',
         processing_stage = 'downloading',
@@ -68,6 +70,7 @@ export class VideoRepository {
         updated_at = now()
       where id = ${videoID}::uuid
         and status in ('processing', 'failed')
+        and processing_attempts < ${maxAttempts}
         and (
           processing_lease_id is null
           or processing_lease_expires_at < now()
@@ -80,18 +83,20 @@ export class VideoRepository {
         source_object_key as "sourceObjectKey",
         content_type as "contentType",
         size_bytes::double precision as "sizeBytes",
-        uploaded_at as "queuedAt"
+        uploaded_at as "queuedAt",
+        processing_attempts as "processingAttempts"
     `) as unknown as VideoJob[];
 
     return rows[0] ?? null;
   }
 
-  async claimNext(leaseID: string) {
+  async claimNext(leaseID: string, maxAttempts: number) {
     const rows = (await this.sql`
       with candidate as (
         select id
         from videos
         where status = 'processing'
+          and processing_attempts < ${maxAttempts}
           and (
             processing_lease_id is null
             or processing_lease_expires_at < now()
@@ -103,6 +108,7 @@ export class VideoRepository {
       update videos
       set
         processing_error = null,
+        processing_attempts = processing_attempts + 1,
         processing_lease_id = ${leaseID}::uuid,
         processing_lease_expires_at = now() + interval '30 seconds',
         processing_stage = 'downloading',
@@ -121,10 +127,63 @@ export class VideoRepository {
         videos.source_object_key as "sourceObjectKey",
         videos.content_type as "contentType",
         videos.size_bytes::double precision as "sizeBytes",
-        videos.uploaded_at as "queuedAt"
+        videos.uploaded_at as "queuedAt",
+        videos.processing_attempts as "processingAttempts"
     `) as unknown as VideoJob[];
 
     return rows[0] ?? null;
+  }
+
+  async releaseForRetry(videoID: string, leaseID: string, error: unknown) {
+    const message =
+      error instanceof Error ? error.message : "Unknown processing failure";
+    const rows = await this.sql`
+      update videos
+      set
+        status = 'processing',
+        processing_error = ${message.slice(0, 4_000)},
+        processing_lease_id = null,
+        processing_lease_expires_at = null,
+        processing_stage = 'queued',
+        processing_progress = 0,
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      where id = ${videoID}::uuid
+        and processing_lease_id = ${leaseID}::uuid
+        and status = 'processing'
+      returning id
+    `;
+    if (rows.length === 0) {
+      throw new ProcessingLeaseLostError(videoID);
+    }
+  }
+
+  async failExhausted(maxAttempts: number) {
+    const rows = await this.sql`
+      update videos
+      set
+        status = 'failed',
+        processing_error = coalesce(
+          processing_error,
+          'Processing stopped before an attempt could complete.'
+        ),
+        processing_lease_id = null,
+        processing_lease_expires_at = null,
+        processing_stage = 'failed',
+        processing_eta_seconds = null,
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      where status = 'processing'
+        and processing_attempts >= ${maxAttempts}
+        and (
+          processing_lease_id is null
+          or processing_lease_expires_at < now()
+        )
+      returning id
+    `;
+
+    return rows.map((row) => String(row.id));
   }
 
   async updateProgress(input: {

@@ -193,10 +193,27 @@ jobs:
             --region "$REGION" \
             --quiet
 
+      - name: Refresh rollback processing job
+        if: env.WORKER_POOL_NAME != ''
+        run: |
+          if gcloud run jobs describe "$JOB_NAME" \
+            --region "$REGION" \
+            --quiet >/dev/null 2>&1; then
+            gcloud run jobs update "$JOB_NAME" \
+              --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
+              --region "$REGION" \
+              --quiet
+          else
+            echo "Rollback job $JOB_NAME does not exist; skipping its image update."
+          fi
+
       - name: Update warm processing worker pool
         if: env.WORKER_POOL_NAME != ''
         run: |
-          gcloud run worker-pools deploy "$WORKER_POOL_NAME" \
+          gcloud run worker-pools describe "$WORKER_POOL_NAME" \
+            --region "$REGION" \
+            --quiet >/dev/null
+          gcloud run worker-pools update "$WORKER_POOL_NAME" \
             --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
             --instances 1 \
             --region "$REGION" \

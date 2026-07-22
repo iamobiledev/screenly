@@ -2,9 +2,16 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  isFinalProcessingAttempt,
   runWorkerLoop,
   type WorkerLoopEvent,
 } from "./worker-loop.js";
+
+test("processing attempts become terminal only at the durable limit", () => {
+  assert.equal(isFinalProcessingAttempt(1, 4), false);
+  assert.equal(isFinalProcessingAttempt(3, 4), false);
+  assert.equal(isFinalProcessingAttempt(4, 4), true);
+});
 
 test("worker loop polls until work is available", async () => {
   const controller = new AbortController();

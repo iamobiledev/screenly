@@ -132,6 +132,7 @@ export async function POST(
         processingEtaSeconds: null,
         processingStartedAt: null,
         processingHeartbeatAt: null,
+        processingAttempts: 0,
         uploadedAt: now,
         updatedAt: now,
       })
