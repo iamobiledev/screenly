@@ -392,8 +392,17 @@ environment variable.
 Add the `DATABASE_URL` repository secret to enable migrations (a managed
 Postgres connection string such as Neon works directly; only Cloud SQL needs
 the extra `CLOUD_SQL_INSTANCE` variable and a `127.0.0.1:5432` URL). To let
-the workflow update the worker image, configure Workload Identity Federation.
-One-time setup:
+the workflow update the worker image, set the `GCP_PROJECT_ID` and
+`GCP_REGION` repository variables and authenticate with either:
+
+- **Service account key (simplest):** create a `screenly-deployer` service
+  account with `roles/run.admin` and `roles/artifactregistry.writer` on the
+  project plus `roles/iam.serviceAccountUser` on the job's runtime service
+  account, then store its key JSON as the `GCP_DEPLOYER_KEY` repository
+  secret.
+- **Workload Identity Federation (keyless):** configure the pool/provider
+  below and set the `GCP_WORKLOAD_IDENTITY_PROVIDER` and
+  `GCP_DEPLOY_SERVICE_ACCOUNT` repository variables. One-time setup:
 
 ```bash
 gcloud iam service-accounts create screenly-deployer
