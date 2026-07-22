@@ -329,7 +329,7 @@ gcloud run jobs deploy screenly-processor \
   --service-account screenly-processor@PROJECT_ID.iam.gserviceaccount.com \
   --set-cloudsql-instances PROJECT_ID:us-central1:screenly \
   --tasks 1 \
-  --max-retries 3 \
+  --max-retries 4 \
   --task-timeout 3600s \
   --set-env-vars APP_URL=https://screenly.example.com,CLOUD_SQL_INSTANCE=PROJECT_ID:us-central1:screenly,STORAGE_BACKEND=gcs,STORAGE_BUCKET=BUCKET_NAME,HLS_THRESHOLD_SECONDS=1200 \
   --set-secrets DATABASE_URL=database-url:latest,STORAGE_ACCESS_KEY_ID=storage-access-key-id:latest,STORAGE_SECRET_ACCESS_KEY=storage-secret-access-key:latest,SLACK_BOT_TOKEN=slack-bot-token:latest
@@ -342,7 +342,8 @@ gcloud run jobs add-iam-policy-binding screenly-processor \
 
 Set the web environment to `PROCESSOR_MODE=cloud-run-job`,
 `GCP_PROJECT_ID`, `GCP_REGION`, and `GCP_PROCESSOR_JOB` when using this
-fallback.
+fallback. The fifth task run provides a cleanup pass if all four processing
+attempts terminate abruptly before they can update the video row.
 
 Store `DATABASE_URL`, `SESSION_SECRET`, the optional bootstrap
 `UPLOAD_API_TOKEN`, `RESEND_API_KEY`, Slack bot token/signing secret, and HMAC

@@ -173,7 +173,6 @@ export const videos = pgTable(
     durationSeconds: integer("duration_seconds"),
     multipartUploadId: text("multipart_upload_id"),
     processingError: text("processing_error"),
-    processingAttempts: integer("processing_attempts").notNull().default(0),
     processingDispatchedAt: timestamp("processing_dispatched_at", {
       withTimezone: true,
     }),
@@ -210,6 +209,16 @@ export const videos = pgTable(
     index("videos_owner_user_id_index").on(table.ownerUserId),
   ],
 );
+
+export const videoProcessingAttempts = pgTable("video_processing_attempts", {
+  videoId: uuid("video_id")
+    .primaryKey()
+    .references(() => videos.id, { onDelete: "cascade" }),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  updatedAt: timestamp("updated_at", { withTimezone: true })
+    .notNull()
+    .defaultNow(),
+});
 
 export const videoViews = pgTable(
   "video_views",

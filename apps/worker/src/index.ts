@@ -68,6 +68,16 @@ async function runSingleVideo(config: WorkerConfig, videoID: string) {
     );
 
     for (let attempt = 0; !video && attempt < 7; attempt += 1) {
+      const exhaustedVideoIDs = await repository.failExhausted(
+        config.PROCESSING_MAX_ATTEMPTS,
+      );
+      await Promise.all(
+        exhaustedVideoIDs.map((exhaustedVideoID) =>
+          slackNotifier?.refreshVideo(exhaustedVideoID).catch((error) => {
+            logSlackRefreshError(exhaustedVideoID, error);
+          }),
+        ),
+      );
       if ((await repository.getVideoStatus(videoID)) !== "processing") {
         break;
       }

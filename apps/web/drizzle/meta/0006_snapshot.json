@@ -1,5 +1,5 @@
 {
-  "id": "72f74d37-08e8-4c6f-971d-a05817ed07d9",
+  "id": "fb52a2c2-1233-4333-b77a-cc3f71d9019e",
   "prevId": "b314189c-d271-4594-a6b3-0d0f895038dc",
   "version": "7",
   "dialect": "postgresql",
@@ -522,6 +522,53 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
+    "public.video_processing_attempts": {
+      "name": "video_processing_attempts",
+      "schema": "",
+      "columns": {
+        "video_id": {
+          "name": "video_id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "video_processing_attempts_video_id_videos_id_fk": {
+          "name": "video_processing_attempts_video_id_videos_id_fk",
+          "tableFrom": "video_processing_attempts",
+          "tableTo": "videos",
+          "columnsFrom": [
+            "video_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.video_views": {
       "name": "video_views",
       "schema": "",
@@ -760,13 +807,6 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
-        },
-        "processing_attempts": {
-          "name": "processing_attempts",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
         },
         "processing_dispatched_at": {
           "name": "processing_dispatched_at",

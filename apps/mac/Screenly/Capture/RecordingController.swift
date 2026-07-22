@@ -16,6 +16,7 @@ final class RecordingController: ObservableObject {
     private var elapsedTimer: Timer?
     private var currentFileURL: URL?
     private var activeUploadTask: Task<Void, Never>?
+    private var finishingTask: Task<Void, Never>?
 
     init(
         settings: RecorderSettings,
@@ -110,12 +111,17 @@ final class RecordingController: ObservableObject {
         stopElapsedTimer()
         state = .finishing
 
-        Task { [weak self] in
+        finishingTask?.cancel()
+        finishingTask = Task { [weak self] in
             guard let self else { return }
+            defer { finishingTask = nil }
             do {
                 let fileURL = try await engine.stop()
                 currentFileURL = fileURL
+                try Task.checkCancellation()
                 beginUpload(fileURL: fileURL, opensSharePage: true)
+            } catch is CancellationError {
+                return
             } catch {
                 state = .failed(message: error.localizedDescription)
             }
@@ -123,14 +129,20 @@ final class RecordingController: ObservableObject {
     }
 
     func discard() {
+        let wasFinishing = state == .finishing
+        let pendingFinishingTask = finishingTask
+        pendingFinishingTask?.cancel()
+        finishingTask = nil
         activeUploadTask?.cancel()
         stopElapsedTimer()
         let client = makeClient()
 
         Task { [weak self] in
             guard let self else { return }
-            if state == .recording || state == .paused || state == .finishing {
+            if state == .recording || state == .paused {
                 _ = try? await engine.stop()
+            } else if wasFinishing {
+                await pendingFinishingTask?.value
             }
             if let currentFileURL {
                 if let client {

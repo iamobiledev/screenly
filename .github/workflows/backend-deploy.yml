@@ -190,6 +190,7 @@ jobs:
         run: |
           gcloud run jobs update "$JOB_NAME" \
             --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
+            --max-retries 4 \
             --region "$REGION" \
             --quiet
 
@@ -201,6 +202,7 @@ jobs:
             --quiet >/dev/null 2>&1; then
             gcloud run jobs update "$JOB_NAME" \
               --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
+              --max-retries 4 \
               --region "$REGION" \
               --quiet
           else
