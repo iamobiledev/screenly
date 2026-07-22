@@ -10,6 +10,7 @@ export type VideoJob = {
   sourceObjectKey: string;
   contentType: string;
   sizeBytes: number;
+  queuedAt: Date | null;
 };
 
 export type SlackVideo = {
@@ -78,7 +79,49 @@ export class VideoRepository {
         recorder_name as "recorderName",
         source_object_key as "sourceObjectKey",
         content_type as "contentType",
-        size_bytes::double precision as "sizeBytes"
+        size_bytes::double precision as "sizeBytes",
+        uploaded_at as "queuedAt"
+    `) as unknown as VideoJob[];
+
+    return rows[0] ?? null;
+  }
+
+  async claimNext(leaseID: string) {
+    const rows = (await this.sql`
+      with candidate as (
+        select id
+        from videos
+        where status = 'processing'
+          and (
+            processing_lease_id is null
+            or processing_lease_expires_at < now()
+          )
+        order by coalesce(uploaded_at, created_at) asc, created_at asc
+        for update skip locked
+        limit 1
+      )
+      update videos
+      set
+        processing_error = null,
+        processing_lease_id = ${leaseID}::uuid,
+        processing_lease_expires_at = now() + interval '30 seconds',
+        processing_stage = 'downloading',
+        processing_progress = 100,
+        processing_eta_seconds = null,
+        processing_started_at = now(),
+        processing_heartbeat_at = now(),
+        updated_at = now()
+      from candidate
+      where videos.id = candidate.id
+      returning
+        videos.id,
+        videos.slug,
+        videos.title,
+        videos.recorder_name as "recorderName",
+        videos.source_object_key as "sourceObjectKey",
+        videos.content_type as "contentType",
+        videos.size_bytes::double precision as "sizeBytes",
+        videos.uploaded_at as "queuedAt"
     `) as unknown as VideoJob[];
 
     return rows[0] ?? null;
