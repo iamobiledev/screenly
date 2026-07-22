@@ -15,7 +15,6 @@
     "user:bootstrap": "pnpm --filter @screenly/web user:bootstrap"
   },
   "devDependencies": {
-    "next": "16.2.10",
     "tsx": "^4.23.1"
   }
 }
