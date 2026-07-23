@@ -1,12 +1,12 @@
 import AppKit
 import AVFoundation
-import Combine
 import ScreenCaptureKit
 import SwiftUI
 
 struct RecordingSetupView: View {
     @ObservedObject var controller: RecordingController
     @ObservedObject var settings: RecorderSettings
+    @ObservedObject var permissions: PermissionManager
     @StateObject private var sources = CaptureSourceModel()
 
     @State private var mode = CaptureMode.display
@@ -106,23 +106,43 @@ struct RecordingSetupView: View {
         .task {
             await refreshCaptureSources()
         }
-        .onReceive(
-            NotificationCenter.default.publisher(
-                for: NSApplication.didBecomeActiveNotification
+        .onChange(of: permissions.canRecordScreen) { _, canRecordScreen in
+            if canRecordScreen {
+                Task {
+                    await refreshCaptureSources()
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var missingScreenPermission: some View {
+        ContentUnavailableView {
+            Label(
+                "Screen Recording Required",
+                systemImage: "rectangle.dashed.badge.record"
             )
-        ) { _ in
-            Task {
-                // TCC can take a moment to publish a setting changed by
-                // System Settings after Screenly becomes active again.
-                try? await Task.sleep(for: .milliseconds(300))
-                await refreshCaptureSources()
+        } description: {
+            Text(
+                "Allow Screenly in Privacy & Security, then quit and reopen it to enable capture."
+            )
+        } actions: {
+            HStack {
+                Button("Open System Settings") {
+                    permissions.openScreenSettings()
+                }
+                Button("Quit Screenly") {
+                    NSApp.terminate(nil)
+                }
             }
         }
     }
 
     @ViewBuilder
     private var sourcePicker: some View {
-        if sources.isLoading {
+        if !permissions.canRecordScreen {
+            missingScreenPermission
+        } else if sources.isLoading {
             ProgressView("Loading screens and windows…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .window {
@@ -173,6 +193,9 @@ struct RecordingSetupView: View {
     }
 
     private var canStart: Bool {
+        guard permissions.canRecordScreen else {
+            return false
+        }
         switch mode {
         case .display, .area:
             selectedDisplayID != nil
@@ -222,7 +245,10 @@ struct RecordingSetupView: View {
     }
 
     private func refreshCaptureSources() async {
-        controller.permissions.refresh()
+        permissions.refresh()
+        guard permissions.canRecordScreen else {
+            return
+        }
         await sources.refresh()
         selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
         selectedWindowID = selectedWindowID ?? sources.windows.first?.id

@@ -1,3 +1,4 @@
+import AppKit
 import Combine
 import Foundation
 
@@ -30,6 +31,13 @@ final class AppModel: ObservableObject {
                 self?.objectWillChange.send()
             }
             .store(in: &cancellables)
+        NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )
+        .sink { [weak self] _ in
+            self?.permissions.refresh()
+        }
+        .store(in: &cancellables)
         settings.$hotkey
             .dropFirst()
             .sink { [weak self] choice in

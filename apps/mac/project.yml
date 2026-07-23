@@ -24,9 +24,9 @@ targets:
           - Resources/Screenly.entitlements
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.screenly.recorder
+        PRODUCT_BUNDLE_IDENTIFIER: com.screenly.recorder.v2
         PRODUCT_NAME: Screenly
-        MARKETING_VERSION: "0.2.2"
+        MARKETING_VERSION: "0.2.3"
         CURRENT_PROJECT_VERSION: "1"
         INFOPLIST_FILE: Screenly/Resources/Info.plist
         GENERATE_INFOPLIST_FILE: NO

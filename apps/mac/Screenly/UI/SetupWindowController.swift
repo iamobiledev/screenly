@@ -16,7 +16,8 @@ final class SetupWindowController {
 
         let view = RecordingSetupView(
             controller: appModel.recorder,
-            settings: appModel.settings
+            settings: appModel.settings,
+            permissions: appModel.permissions
         )
         let window = NSWindow(
             contentRect: CGRect(x: 0, y: 0, width: 620, height: 520),

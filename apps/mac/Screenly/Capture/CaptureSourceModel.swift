@@ -1,5 +1,6 @@
 import AppKit
 import Combine
+import OSLog
 @preconcurrency import ScreenCaptureKit
 
 @MainActor
@@ -8,12 +9,35 @@ final class CaptureSourceModel: ObservableObject {
     @Published private(set) var windows: [WindowChoice] = []
     @Published private(set) var isLoading = false
     @Published private(set) var errorMessage: String?
+    private var refreshQueued = false
+    private let logger = Logger(
+        subsystem: Bundle.main.bundleIdentifier ?? "com.screenly.recorder.v2",
+        category: "CaptureSources"
+    )
 
     func refresh() async {
-        guard !isLoading else { return }
+        // #region agent log
+        logger.info(
+            "Capture source refresh requested isLoading=\(self.isLoading, privacy: .public)"
+        )
+        // #endregion
+        guard !isLoading else {
+            refreshQueued = true
+            // #region agent log
+            logger.info("Capture source refresh coalesced")
+            // #endregion
+            return
+        }
         isLoading = true
         defer { isLoading = false }
 
+        repeat {
+            refreshQueued = false
+            await load()
+        } while refreshQueued
+    }
+
+    private func load() async {
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(
                 true,
@@ -51,8 +75,19 @@ final class CaptureSourceModel: ObservableObject {
                 ) == .orderedAscending
             }
             errorMessage = nil
+            // #region agent log
+            logger.info(
+                "Capture sources loaded displays=\(self.displays.count, privacy: .public) windows=\(self.windows.count, privacy: .public)"
+            )
+            // #endregion
         } catch {
             errorMessage = error.localizedDescription
+            let nsError = error as NSError
+            // #region agent log
+            logger.error(
+                "Capture source refresh failed domain=\(nsError.domain, privacy: .public) code=\(nsError.code, privacy: .public)"
+            )
+            // #endregion
         }
     }
 

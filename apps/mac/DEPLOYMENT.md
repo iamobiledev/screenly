@@ -11,7 +11,7 @@ Keychain access with the app's code requirement.
 - Xcode project specification: `apps/mac/project.yml`
 - Build script: `apps/mac/scripts/build-release.sh`
 - Workflow: `.github/workflows/macos-release.yml`
-- Bundle identifier: `com.screenly.recorder`
+- Bundle identifier: `com.screenly.recorder.v2`
 - Release bucket: `gs://screenly-media-screenly-503001/releases`
 - Release API: `https://screenly-five.vercel.app/api/releases/macos/latest`
 - Download API: `https://screenly-five.vercel.app/api/releases/macos/download`
@@ -23,8 +23,8 @@ The version in `apps/mac/project.yml` must match the version being published.
 For an internal ad-hoc-signed validation build, tag the exact source commit:
 
 ```bash
-git tag internal-v0.2.2 <commit-sha>
-git push origin internal-v0.2.2
+git tag internal-v0.2.3 <commit-sha>
+git push origin internal-v0.2.3
 gh run list --workflow macos-release.yml --limit 5
 ```
 
@@ -33,20 +33,20 @@ commit SHA. Download the artifact without rebuilding it:
 
 ```bash
 gh run download <run-id> \
-  --name Screenly-0.2.2 \
-  --dir /tmp/screenly-release-0.2.2
+  --name Screenly-0.2.3 \
+  --dir /tmp/screenly-release-0.2.3
 ```
 
 Verify that the generated checksum matches the DMG:
 
 ```bash
-actual="$(shasum -a 256 /tmp/screenly-release-0.2.2/Screenly.dmg | awk '{print $1}')"
-declared="$(awk '{print $1}' /tmp/screenly-release-0.2.2/Screenly.dmg.sha256)"
+actual="$(shasum -a 256 /tmp/screenly-release-0.2.3/Screenly.dmg | awk '{print $1}')"
+declared="$(awk '{print $1}' /tmp/screenly-release-0.2.3/Screenly.dmg.sha256)"
 test "$actual" = "$declared"
 ```
 
 The build script applies the explicit designated requirement
-`identifier "com.screenly.recorder"` to ad-hoc builds. On macOS, verify it
+`identifier "com.screenly.recorder.v2"` to ad-hoc builds. On macOS, verify it
 before publishing:
 
 ```bash
@@ -65,7 +65,7 @@ ad-hoc releases.
 Publish the exact downloaded artifact, not a local rebuild:
 
 ```bash
-version=0.2.2
+version=0.2.3
 project=screenly-503001
 bucket=screenly-media-screenly-503001
 release_dir=/tmp/screenly-release-$version
@@ -147,3 +147,27 @@ Remove a known-bad versioned object so it cannot be installed accidentally.
 The current stable-identity `0.2.2` validation build was produced by workflow
 run `30027261023` from commit `9525f56`, with SHA-256
 `b2bc32f14a05f6a8b7e466a7b1b154bacb71b5734ed866297071638503eaaa10`.
+It still uses the original `com.screenly.recorder` TCC client key and must not
+be used to validate recovery from stale permissions created by `0.2.1` or the
+first `0.2.2` build.
+
+## TCC identity migration
+
+Version `0.2.3` intentionally uses the fresh bundle identifier
+`com.screenly.recorder.v2`. This creates a new Screen Recording TCC row instead
+of colliding with stale rows whose code requirement came from the original
+ad-hoc releases. The ad-hoc designated requirement, app bundle identifier, and
+Keychain service must all retain their v2 identities in later releases.
+
+The identity migration requires users to grant Screen Recording permission and
+sign in once more. After granting Screen Recording access, fully quit and
+reopen Screenly before testing capture. Apple's ScreenCaptureKit flow does not
+support treating an in-process refresh as a substitute for that restart.
+
+The old row can optionally be removed after quitting both app versions:
+
+```bash
+tccutil reset ScreenCapture com.screenly.recorder
+```
+
+Do not reset `com.screenly.recorder.v2` while validating the new build.

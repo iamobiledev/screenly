@@ -31,6 +31,7 @@ staging_directory="${build_directory}/dmg"
 output_path="${build_directory}/Screenly.dmg"
 marketing_version="${MAC_APP_VERSION:-0.1.0}"
 build_number="${MAC_BUILD_NUMBER:-1}"
+expected_bundle_identifier="com.screenly.recorder.v2"
 
 rm -rf "${build_directory}"
 mkdir -p "${staging_directory}"
@@ -64,6 +65,16 @@ else
 fi
 
 application_path="${archive_path}/Products/Applications/Screenly.app"
+info_plist="${application_path}/Contents/Info.plist"
+bundle_identifier="$(
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "${info_plist}"
+)"
+
+if [[ "${bundle_identifier}" != "${expected_bundle_identifier}" ]]; then
+  echo "Unexpected bundle identifier: ${bundle_identifier}" >&2
+  echo "Expected: ${expected_bundle_identifier}" >&2
+  exit 1
+fi
 
 if [[ "${unsigned_build}" == "true" ]]; then
   codesign \
@@ -71,13 +82,44 @@ if [[ "${unsigned_build}" == "true" ]]; then
     --deep \
     --options runtime \
     --sign - \
-    --identifier com.screenly.recorder \
-    --requirements '=designated => identifier "com.screenly.recorder"' \
+    --identifier "${bundle_identifier}" \
+    --requirements "=designated => identifier \"${bundle_identifier}\"" \
     --entitlements "${project_directory}/Screenly/Resources/Screenly.entitlements" \
     "${application_path}"
 fi
 
 codesign --verify --deep --strict --verbose=2 "${application_path}"
+
+executable_path="${application_path}/Contents/MacOS/Screenly"
+reference_requirement=""
+for architecture in $(lipo -archs "${executable_path}"); do
+  architecture_requirement="$(
+    codesign \
+      --display \
+      --arch "${architecture}" \
+      --requirements - \
+      "${application_path}" 2>&1 |
+      sed -n '/^designated => /p'
+  )"
+  if [[ -z "${architecture_requirement}" ]]; then
+    echo "Missing designated requirement for ${architecture}" >&2
+    exit 1
+  fi
+  if [[ "${architecture_requirement}" != *"identifier \"${bundle_identifier}\""* ]]; then
+    echo "Designated requirement does not use ${bundle_identifier}:" >&2
+    echo "${architecture_requirement}" >&2
+    exit 1
+  fi
+  if [[ -n "${reference_requirement}" &&
+        "${architecture_requirement}" != "${reference_requirement}" ]]; then
+    echo "Designated requirements differ between architectures" >&2
+    exit 1
+  fi
+  reference_requirement="${architecture_requirement}"
+done
+
+echo "Verified bundle identifier: ${bundle_identifier}"
+echo "Verified designated requirement: ${reference_requirement}"
 
 ditto "${application_path}" "${staging_directory}/Screenly.app"
 ln -s /Applications "${staging_directory}/Applications"
