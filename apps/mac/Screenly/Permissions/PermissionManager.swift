@@ -8,6 +8,19 @@ final class PermissionManager: ObservableObject {
     @Published private(set) var canRecordScreen = CGPreflightScreenCaptureAccess()
     @Published private(set) var cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
     @Published private(set) var microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+    private var cancellables = Set<AnyCancellable>()
+
+    init() {
+        NotificationCenter.default.publisher(
+            for: NSApplication.didBecomeActiveNotification
+        )
+        .sink { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.refresh()
+            }
+        }
+        .store(in: &cancellables)
+    }
 
     var hasRequiredPermissions: Bool {
         canRecordScreen && microphoneStatus == .authorized
@@ -20,7 +33,9 @@ final class PermissionManager: ObservableObject {
     }
 
     func requestScreen() {
-        canRecordScreen = CGRequestScreenCaptureAccess()
+        // The system prompt is asynchronous. Its immediate return value is not
+        // a final authorization result, so refresh when Screenly is activated.
+        _ = CGRequestScreenCaptureAccess()
     }
 
     func requestCamera() async {
