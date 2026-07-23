@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import Combine
 import ScreenCaptureKit
 import SwiftUI
 
@@ -103,9 +104,19 @@ struct RecordingSetupView: View {
         .frame(width: 620)
         .glassWindowSurface()
         .task {
-            await sources.refresh()
-            selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
-            selectedWindowID = selectedWindowID ?? sources.windows.first?.id
+            await refreshCaptureSources()
+        }
+        .onReceive(
+            NotificationCenter.default.publisher(
+                for: NSApplication.didBecomeActiveNotification
+            )
+        ) { _ in
+            Task {
+                // TCC can take a moment to publish a setting changed by
+                // System Settings after Screenly becomes active again.
+                try? await Task.sleep(for: .milliseconds(300))
+                await refreshCaptureSources()
+            }
         }
     }
 
@@ -208,6 +219,13 @@ struct RecordingSetupView: View {
 
     private func closeWindow() {
         NSApp.keyWindow?.close()
+    }
+
+    private func refreshCaptureSources() async {
+        controller.permissions.refresh()
+        await sources.refresh()
+        selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
+        selectedWindowID = selectedWindowID ?? sources.windows.first?.id
     }
 
     private var audioDevices: [AVCaptureDevice] {

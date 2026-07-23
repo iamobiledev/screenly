@@ -71,6 +71,8 @@ if [[ "${unsigned_build}" == "true" ]]; then
     --deep \
     --options runtime \
     --sign - \
+    --identifier com.screenly.recorder \
+    --requirements '=designated => identifier "com.screenly.recorder"' \
     --entitlements "${project_directory}/Screenly/Resources/Screenly.entitlements" \
     "${application_path}"
 fi

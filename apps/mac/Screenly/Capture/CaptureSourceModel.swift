@@ -10,6 +10,7 @@ final class CaptureSourceModel: ObservableObject {
     @Published private(set) var errorMessage: String?
 
     func refresh() async {
+        guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
 

@@ -2,7 +2,10 @@ import Foundation
 import Security
 
 enum KeychainStore {
-    private static let service = "com.screenly.recorder"
+    // The first recorder releases were ad-hoc signed without a stable
+    // designated requirement. Using a new service avoids prompting for access
+    // to credentials whose ACL belongs to the old build identity.
+    private static let service = "com.screenly.recorder.session.v2"
 
     static func string(for account: String) -> String {
         let query: [CFString: Any] = [
