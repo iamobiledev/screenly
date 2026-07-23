@@ -388,8 +388,9 @@ Production is split between two platforms:
   applies Drizzle migrations to the production database, optionally triggers
   the Vercel production deploy through a Deploy Hook (so schema changes land
   before the new web build), and rebuilds/updates the `screenly-processor`
-  worker image. When `CLOUD_RUN_WORKER_POOL` is configured it updates that
-  warm pool; otherwise it preserves the one-shot Cloud Run Job deployment.
+  worker image and updates the warm `screenly-processor-pool`. Set the
+  `PROCESSOR_RUNTIME` repository variable to `job` only when intentionally
+  using the scale-to-zero Cloud Run Job fallback.
 
 ### Vercel setup
 
@@ -479,9 +480,10 @@ Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`
 (`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
 `GCP_DEPLOY_SERVICE_ACCOUNT`
-(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and optionally
-`CLOUD_RUN_WORKER_POOL=screenly-processor-pool`. If the pool variable is
-absent, `CLOUD_RUN_JOB` can override the fallback job name
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`). The workflow updates
+`screenly-processor-pool` by default; `CLOUD_RUN_WORKER_POOL` can override that
+name. To intentionally use the scale-to-zero fallback, set
+`PROCESSOR_RUNTIME=job`; `CLOUD_RUN_JOB` can override its default name,
 `screenly-processor`.
 
 The migration job skips itself without the `DATABASE_URL` secret and the
@@ -499,8 +501,8 @@ Use this order to avoid interrupting uploads:
    existing job.
 2. Confirm the pool stays running and logs `Warm processing worker pool
    started.`
-3. Set the `CLOUD_RUN_WORKER_POOL` repository variable so later backend
-   deployments update the pool.
+3. If the pool has a non-default name, set the `CLOUD_RUN_WORKER_POOL`
+   repository variable so later backend deployments update it.
 4. Change the web service to `PROCESSOR_MODE=worker-pool` and redeploy it.
 5. Upload a short canary and compare `uploaded_at` with
    `processing_started_at`; an idle pool should begin within a few seconds.
@@ -550,10 +552,12 @@ bucket. Gatekeeper does not trust ad-hoc signatures, so users must explicitly
 approve the app with **Control-click → Open**. Use the notarized workflow above
 before distributing outside the team.
 
-The `Release macOS recorder` GitHub Actions workflow additionally imports the
-Developer ID certificate and publishes versioned and `Screenly-latest.dmg`
-objects to S3-compatible storage, including Cloud Storage's XML API. Configure
-these secrets:
+On a `main` push that changes the recorder, the `Release macOS recorder`
+workflow imports the Developer ID certificate, notarizes the version in
+`apps/mac/project.yml`, and publishes versioned and `Screenly-latest.dmg`
+objects to S3-compatible storage. The latest object includes version and
+checksum metadata so the web download updates without a separate Vercel
+environment change. Configure these secrets:
 
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
 - `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
@@ -562,9 +566,10 @@ these secrets:
 Configure repository variables `MAC_RELEASE_STORAGE_URI`,
 `MAC_RELEASE_STORAGE_REGION`, and optional `MAC_RELEASE_STORAGE_ENDPOINT`.
 For Cloud Storage use an `s3://BUCKET/releases` URI, region `auto`, and endpoint
-`https://storage.googleapis.com`. Finally set `MAC_APP_DOWNLOAD_URL`,
-`MAC_APP_VERSION`, and `MAC_APP_SHA256` on the web service. `/download` and
-`/api/releases/macos/latest` then expose the signed build.
+`https://storage.googleapis.com`. Set `MAC_APP_DOWNLOAD_URL` on the web service;
+`MAC_APP_VERSION` and `MAC_APP_SHA256` remain fallbacks for release objects
+published before metadata support. `/download` and
+`/api/releases/macos/latest` expose the latest signed build.
 
 ## Current verification commands
 

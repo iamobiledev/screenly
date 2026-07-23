@@ -6,7 +6,7 @@ import { getCookieSessionAuth } from "@/lib/session";
 export const dynamic = "force-dynamic";
 
 export default async function DownloadPage() {
-  const release = getMacRelease();
+  const release = await getMacRelease();
   const authentication = await getCookieSessionAuth();
 
   return (

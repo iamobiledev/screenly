@@ -2,8 +2,8 @@ import { getMacRelease } from "@/lib/release";
 
 export const dynamic = "force-dynamic";
 
-export function GET() {
-  const release = getMacRelease();
+export async function GET() {
+  const release = await getMacRelease();
 
   if (!release) {
     return Response.json(

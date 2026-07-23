@@ -65,6 +65,7 @@ export function LibraryNav({
         ) : (
           <span>{activeWorkspace.name}</span>
         )}
+        <Link href="/download">Download app</Link>
         {canManage ? <Link href="/library/tokens">Recorder tokens</Link> : null}
         {canManage ? <Link href="/library/members">Members</Link> : null}
         <SignOutButton />
