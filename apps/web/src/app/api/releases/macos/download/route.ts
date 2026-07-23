@@ -1,4 +1,4 @@
-import { getMacRelease } from "@/lib/release";
+import { getMacRelease, getMacReleaseObjectKey } from "@/lib/release";
 import { getDownloadUrl } from "@/lib/storage";
 
 export const runtime = "nodejs";
@@ -6,9 +6,8 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const release = getMacRelease();
-  const objectKey = process.env.MAC_APP_OBJECT_KEY;
 
-  if (!release || !objectKey) {
+  if (!release) {
     return Response.json(
       {
         error: {
@@ -21,7 +20,7 @@ export async function GET() {
   }
 
   const signedURL = await getDownloadUrl(
-    objectKey,
+    getMacReleaseObjectKey(release.version),
     `Screenly-${release.version}.dmg`,
   );
 

@@ -18,3 +18,7 @@ export function getMacRelease() {
     throw new Error("MAC_APP_DOWNLOAD_URL must be a valid absolute URL.");
   }
 }
+
+export function getMacReleaseObjectKey(version: string) {
+  return `releases/Screenly-${version}.dmg`;
+}
