@@ -198,9 +198,9 @@ struct RecordingSetupView: View {
         }
         switch mode {
         case .display, .area:
-            selectedDisplayID != nil
+            return selectedDisplayID != nil
         case .window:
-            selectedWindowID != nil
+            return selectedWindowID != nil
         }
     }
 
