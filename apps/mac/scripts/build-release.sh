@@ -31,7 +31,7 @@ staging_directory="${build_directory}/dmg"
 output_path="${build_directory}/Screenly.dmg"
 marketing_version="${MAC_APP_VERSION:-0.1.0}"
 build_number="${MAC_BUILD_NUMBER:-1}"
-expected_bundle_identifier="com.screenly.recorder.v2"
+expected_bundle_identifier="com.screenly.recorder"
 
 rm -rf "${build_directory}"
 mkdir -p "${staging_directory}"
