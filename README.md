@@ -511,6 +511,9 @@ Use this order to avoid interrupting uploads:
 
 ## macOS build and distribution
 
+Operational build, publication, verification, and rollback steps are in
+[`apps/mac/DEPLOYMENT.md`](apps/mac/DEPLOYMENT.md).
+
 The recorder targets macOS 15 and requires Xcode 16.3 or newer. Building with
 the Xcode 26 SDK (macOS 26 Tahoe) additionally enables the native Liquid Glass
 appearance; on macOS 15, and in builds from older SDKs, the interface falls
