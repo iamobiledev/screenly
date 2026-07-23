@@ -1,10 +1,9 @@
-import { getObjectMetadata } from "./storage";
-
 const MAC_RELEASE_OBJECT_KEY = "releases/Screenly-latest.dmg";
 
 export async function getMacRelease() {
   let publishedMetadata: Record<string, string> = {};
   try {
+    const { getObjectMetadata } = await import("./storage");
     publishedMetadata = await getObjectMetadata(MAC_RELEASE_OBJECT_KEY);
   } catch {
     // Keep the configured release available during transient storage failures.
