@@ -29,6 +29,9 @@ jobs:
     # recorder to adopt the native Liquid Glass appearance.
     runs-on: macos-26
     timeout-minutes: 45
+    outputs:
+      publish: ${{ steps.release.outputs.publish }}
+      version: ${{ steps.release.outputs.version }}
     env:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
@@ -36,11 +39,6 @@ jobs:
       CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
       CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       MAC_BUILD_NUMBER: ${{ github.run_number }}
-      AWS_ACCESS_KEY_ID: ${{ secrets.MAC_RELEASE_STORAGE_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.MAC_RELEASE_STORAGE_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{ vars.MAC_RELEASE_STORAGE_REGION }}
-      MAC_RELEASE_STORAGE_URI: ${{ vars.MAC_RELEASE_STORAGE_URI }}
-      STORAGE_ENDPOINT_URL: ${{ vars.MAC_RELEASE_STORAGE_ENDPOINT }}
 
     steps:
       - uses: actions/checkout@v4
@@ -48,93 +46,64 @@ jobs:
       - name: Resolve release settings
         id: release
         run: |
-          release_configured=true
-          required_release_variables=(
+          signing_configured=true
+          required_signing_variables=(
             APPLE_ID
             APPLE_APP_PASSWORD
             APPLE_TEAM_ID
             CERTIFICATE_P12_BASE64
             CERTIFICATE_PASSWORD
-            AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY
-            AWS_DEFAULT_REGION
-            MAC_RELEASE_STORAGE_URI
           )
-          for variable in "${required_release_variables[@]}"; do
+          for variable in "${required_signing_variables[@]}"; do
             if [[ -z "${!variable:-}" ]]; then
-              release_configured=false
+              signing_configured=false
             fi
           done
+
+          version="$(
+            awk -F '"' '/MARKETING_VERSION:/ { print $2; exit }' \
+              apps/mac/project.yml
+          )"
+          publish_release=false
+          unsigned_build=true
 
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#internal-v}"
-            echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
-            echo "MAC_PUBLISH_RELEASE=false" >> "$GITHUB_ENV"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="${{ inputs.version }}"
-            echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
-            echo "MAC_PUBLISH_RELEASE=true" >> "$GITHUB_ENV"
-          else
-            version="$(
-              awk -F '"' '/MARKETING_VERSION:/ { print $2; exit }' \
-                apps/mac/project.yml
-            )"
-            if [[ "$GITHUB_EVENT_NAME" == "push" &&
-                  "$release_configured" == "true" ]]; then
-              echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
-              echo "MAC_PUBLISH_RELEASE=true" >> "$GITHUB_ENV"
-            else
-              echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
-              echo "MAC_PUBLISH_RELEASE=false" >> "$GITHUB_ENV"
-            fi
+            publish_release=true
+          elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            publish_release=true
           fi
+
+          if [[ "$publish_release" == "true" &&
+                "$signing_configured" == "true" ]]; then
+            unsigned_build=false
+          fi
+
+          echo "MAC_UNSIGNED_BUILD=$unsigned_build" >> "$GITHUB_ENV"
           echo "MAC_APP_VERSION=$version" >> "$GITHUB_ENV"
+          echo "publish=$publish_release" >> "$GITHUB_OUTPUT"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
-      - name: Explain skipped automatic release
+      - name: Explain ad-hoc-signed release
         if: >-
-          github.event_name == 'push' &&
-          github.ref == 'refs/heads/main' &&
-          env.MAC_PUBLISH_RELEASE != 'true'
+          steps.release.outputs.publish == 'true' &&
+          env.MAC_UNSIGNED_BUILD == 'true'
         run: |
-          echo "::warning::Release credentials are incomplete; building an unsigned verification artifact without publishing."
+          echo "::warning::Apple signing credentials are incomplete; publishing an ad-hoc-signed build that requires Control-click → Open."
           {
-            echo "### macOS release not published"
+            echo "### Publishing an ad-hoc-signed macOS release"
             echo
-            echo "Release credentials or storage settings are incomplete."
-            echo "This run will verify the app with an unsigned build only."
+            echo "Apple signing credentials are incomplete."
+            echo "Users must approve this build with **Control-click → Open**."
           } >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Validate publish configuration
-        if: env.MAC_PUBLISH_RELEASE == 'true'
-        run: |
-          missing=()
-          required_release_variables=(
-            APPLE_ID
-            APPLE_APP_PASSWORD
-            APPLE_TEAM_ID
-            CERTIFICATE_P12_BASE64
-            CERTIFICATE_PASSWORD
-            AWS_ACCESS_KEY_ID
-            AWS_SECRET_ACCESS_KEY
-            AWS_DEFAULT_REGION
-            MAC_RELEASE_STORAGE_URI
-          )
-          for variable in "${required_release_variables[@]}"; do
-            if [[ -z "${!variable:-}" ]]; then
-              missing+=("$variable")
-            fi
-          done
-          if (( ${#missing[@]} > 0 )); then
-            echo "::error::Missing release configuration: ${missing[*]}"
-            exit 1
-          fi
-
       - name: Install build tools
-        run: brew install xcodegen awscli
+        run: brew install xcodegen
 
       - name: Import Developer ID certificate
-        if: env.MAC_PUBLISH_RELEASE == 'true'
+        if: env.MAC_UNSIGNED_BUILD != 'true'
         run: |
           keychain_path="$RUNNER_TEMP/screenly-signing.keychain-db"
           certificate_path="$RUNNER_TEMP/developer-id.p12"
@@ -158,30 +127,6 @@ jobs:
       - name: Build, sign, and notarize
         run: bash apps/mac/scripts/build-release.sh
 
-      - name: Publish versioned and latest downloads
-        if: env.MAC_PUBLISH_RELEASE == 'true'
-        run: |
-          endpoint_args=()
-          if [[ -n "${STORAGE_ENDPOINT_URL:-}" ]]; then
-            endpoint_args+=(--endpoint-url "$STORAGE_ENDPOINT_URL")
-          fi
-          release_dir="apps/mac/build/release"
-          sha256="$(awk '{ print $1 }' "$release_dir/Screenly.dmg.sha256")"
-          release_metadata="version=$MAC_APP_VERSION,sha256=$sha256"
-          aws "${endpoint_args[@]}" s3 cp \
-            "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_STORAGE_URI/Screenly-$MAC_APP_VERSION.dmg" \
-            --content-type application/x-apple-diskimage \
-            --metadata "$release_metadata"
-          aws "${endpoint_args[@]}" s3 cp \
-            "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg" \
-            --content-type application/x-apple-diskimage \
-            --metadata "$release_metadata"
-          aws "${endpoint_args[@]}" s3 cp \
-            "$release_dir/Screenly.dmg.sha256" \
-            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg.sha256"
-
       - name: Preserve release artifact
         uses: actions/upload-artifact@v4
         with:
@@ -190,3 +135,70 @@ jobs:
             apps/mac/build/release/Screenly.dmg
             apps/mac/build/release/Screenly.dmg.sha256
           if-no-files-found: error
+
+  publish-release:
+    name: Publish desktop release
+    needs: build-notarize-publish
+    if: needs.build-notarize-publish.outputs.publish == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+    env:
+      GCP_DEPLOYER_KEY: ${{ secrets.GCP_DEPLOYER_KEY }}
+      PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+      RELEASE_BUCKET: ${{ vars.MAC_RELEASE_STORAGE_BUCKET }}
+      VERSION: ${{ needs.build-notarize-publish.outputs.version }}
+    steps:
+      - name: Authenticate to Google Cloud (service account key)
+        if: env.GCP_DEPLOYER_KEY != ''
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          credentials_json: ${{ secrets.GCP_DEPLOYER_KEY }}
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        if: env.GCP_DEPLOYER_KEY == ''
+        uses: google-github-actions/auth@v3
+        with:
+          project_id: ${{ vars.GCP_PROJECT_ID }}
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOY_SERVICE_ACCOUNT }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+
+      - name: Download verified release artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: Screenly-${{ needs.build-notarize-publish.outputs.version }}
+          path: release
+
+      - name: Publish versioned and latest downloads
+        run: |
+          bucket="${RELEASE_BUCKET:-screenly-media-$PROJECT_ID}"
+          sha256="$(awk '{ print $1 }' release/Screenly.dmg.sha256)"
+          echo "$sha256  release/Screenly.dmg" | sha256sum --check
+          metadata="version=$VERSION,sha256=$sha256"
+
+          gcloud storage cp \
+            release/Screenly.dmg \
+            "gs://$bucket/releases/Screenly-$VERSION.dmg" \
+            --project "$PROJECT_ID" \
+            --content-type application/x-apple-diskimage \
+            --cache-control private,max-age=31536000,immutable \
+            --custom-metadata "$metadata"
+          gcloud storage cp \
+            release/Screenly.dmg \
+            "gs://$bucket/releases/Screenly-latest.dmg" \
+            --project "$PROJECT_ID" \
+            --content-type application/x-apple-diskimage \
+            --cache-control private,max-age=300 \
+            --custom-metadata "$metadata"
+          gcloud storage cp \
+            release/Screenly.dmg.sha256 \
+            "gs://$bucket/releases/Screenly-latest.dmg.sha256" \
+            --project "$PROJECT_ID" \
+            --content-type text/plain \
+            --cache-control private,max-age=300
