@@ -20,9 +20,11 @@
 #     GCP_PROJECT_ID                 enables the worker job
 #     GCP_REGION                     e.g. us-central1
 #     CLOUD_SQL_INSTANCE             only when the database is Cloud SQL
+#     PROCESSOR_RUNTIME              optional; defaults to worker-pool, set to
+#                                    job to use the scale-to-zero fallback
 #     CLOUD_RUN_JOB                  optional, defaults to screenly-processor
-#     CLOUD_RUN_WORKER_POOL          optional; when set, deploys this warm pool
-#                                    instead of updating the one-shot job
+#     CLOUD_RUN_WORKER_POOL          optional, defaults to
+#                                    screenly-processor-pool
 #
 #   Google authentication — either:
 #     GCP_DEPLOYER_KEY secret        service account key JSON (simplest), or
@@ -148,8 +150,9 @@ jobs:
     env:
       PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
       REGION: ${{ vars.GCP_REGION }}
+      PROCESSOR_RUNTIME: ${{ vars.PROCESSOR_RUNTIME != '' && vars.PROCESSOR_RUNTIME || 'worker-pool' }}
       JOB_NAME: ${{ vars.CLOUD_RUN_JOB != '' && vars.CLOUD_RUN_JOB || 'screenly-processor' }}
-      WORKER_POOL_NAME: ${{ vars.CLOUD_RUN_WORKER_POOL }}
+      WORKER_POOL_NAME: ${{ vars.CLOUD_RUN_WORKER_POOL != '' && vars.CLOUD_RUN_WORKER_POOL || 'screenly-processor-pool' }}
       GCP_DEPLOYER_KEY: ${{ secrets.GCP_DEPLOYER_KEY }}
     steps:
       - uses: actions/checkout@v4
@@ -186,7 +189,7 @@ jobs:
           docker push --all-tags "$image"
 
       - name: Update processing job
-        if: env.WORKER_POOL_NAME == ''
+        if: env.PROCESSOR_RUNTIME == 'job'
         run: |
           gcloud run jobs update "$JOB_NAME" \
             --image "$REGION-docker.pkg.dev/$PROJECT_ID/screenly/worker:$GITHUB_SHA" \
@@ -195,7 +198,7 @@ jobs:
             --quiet
 
       - name: Refresh rollback processing job
-        if: env.WORKER_POOL_NAME != ''
+        if: env.PROCESSOR_RUNTIME != 'job'
         run: |
           if gcloud run jobs describe "$JOB_NAME" \
             --region "$REGION" \
@@ -210,7 +213,7 @@ jobs:
           fi
 
       - name: Update warm processing worker pool
-        if: env.WORKER_POOL_NAME != ''
+        if: env.PROCESSOR_RUNTIME != 'job'
         run: |
           gcloud run worker-pools describe "$WORKER_POOL_NAME" \
             --region "$REGION" \
