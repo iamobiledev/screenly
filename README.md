@@ -557,7 +557,9 @@ workflow imports the Developer ID certificate, notarizes the version in
 `apps/mac/project.yml`, and publishes versioned and `Screenly-latest.dmg`
 objects to S3-compatible storage. The latest object includes version and
 checksum metadata so the web download updates without a separate Vercel
-environment change. Configure these secrets:
+environment change. When release credentials are incomplete, the workflow
+falls back to an unsigned verification artifact and skips publishing instead
+of failing the deployment. Configure these secrets to enable publishing:
 
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
 - `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
