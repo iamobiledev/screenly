@@ -1,4 +1,4 @@
-import { getObjectMetadata } from "@/lib/storage";
+import { getObjectMetadata } from "./storage";
 
 const MAC_RELEASE_OBJECT_KEY = "releases/Screenly-latest.dmg";
 
