@@ -6,6 +6,7 @@ import SwiftUI
 struct RecordingSetupView: View {
     @ObservedObject var controller: RecordingController
     @ObservedObject var settings: RecorderSettings
+    @ObservedObject var permissions: PermissionManager
     @StateObject private var sources = CaptureSourceModel()
 
     @State private var mode = CaptureMode.display
@@ -103,15 +104,40 @@ struct RecordingSetupView: View {
         .frame(width: 620)
         .glassWindowSurface()
         .task {
-            await sources.refresh()
-            selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
-            selectedWindowID = selectedWindowID ?? sources.windows.first?.id
+            await refreshCaptureSources()
+        }
+        .onChange(of: permissions.canRecordScreen) { _, isGranted in
+            if isGranted {
+                Task {
+                    await refreshCaptureSources()
+                }
+            }
         }
     }
 
     @ViewBuilder
     private var sourcePicker: some View {
-        if sources.isLoading {
+        if !permissions.canRecordScreen {
+            ContentUnavailableView {
+                Label(
+                    "Screen Recording Required",
+                    systemImage: "rectangle.dashed.badge.record"
+                )
+            } description: {
+                Text(
+                    "Allow this version of Screenly in System Settings, then quit and reopen Screenly."
+                )
+            } actions: {
+                HStack {
+                    Button("Open System Settings") {
+                        permissions.openScreenSettings()
+                    }
+                    Button("Quit Screenly") {
+                        NSApp.terminate(nil)
+                    }
+                }
+            }
+        } else if sources.isLoading {
             ProgressView("Loading screens and windows…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if mode == .window {
@@ -162,11 +188,14 @@ struct RecordingSetupView: View {
     }
 
     private var canStart: Bool {
+        guard permissions.canRecordScreen else {
+            return false
+        }
         switch mode {
         case .display, .area:
-            selectedDisplayID != nil
+            return selectedDisplayID != nil
         case .window:
-            selectedWindowID != nil
+            return selectedWindowID != nil
         }
     }
 
@@ -208,6 +237,16 @@ struct RecordingSetupView: View {
 
     private func closeWindow() {
         NSApp.keyWindow?.close()
+    }
+
+    private func refreshCaptureSources() async {
+        permissions.refresh()
+        guard permissions.canRecordScreen else {
+            return
+        }
+        await sources.refresh()
+        selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
+        selectedWindowID = selectedWindowID ?? sources.windows.first?.id
     }
 
     private var audioDevices: [AVCaptureDevice] {

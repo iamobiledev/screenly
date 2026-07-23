@@ -31,6 +31,7 @@ staging_directory="${build_directory}/dmg"
 output_path="${build_directory}/Screenly.dmg"
 marketing_version="${MAC_APP_VERSION:-0.1.0}"
 build_number="${MAC_BUILD_NUMBER:-1}"
+expected_bundle_identifier="com.screenly.recorder.v2"
 
 rm -rf "${build_directory}"
 mkdir -p "${staging_directory}"
@@ -64,6 +65,16 @@ else
 fi
 
 application_path="${archive_path}/Products/Applications/Screenly.app"
+info_plist="${application_path}/Contents/Info.plist"
+bundle_identifier="$(
+  /usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "${info_plist}"
+)"
+
+if [[ "${bundle_identifier}" != "${expected_bundle_identifier}" ]]; then
+  echo "Unexpected bundle identifier: ${bundle_identifier}" >&2
+  echo "Expected: ${expected_bundle_identifier}" >&2
+  exit 1
+fi
 
 if [[ "${unsigned_build}" == "true" ]]; then
   codesign \
@@ -71,11 +82,22 @@ if [[ "${unsigned_build}" == "true" ]]; then
     --deep \
     --options runtime \
     --sign - \
+    --identifier "${bundle_identifier}" \
+    --requirements "=designated => identifier \"${bundle_identifier}\"" \
     --entitlements "${project_directory}/Screenly/Resources/Screenly.entitlements" \
     "${application_path}"
 fi
 
 codesign --verify --deep --strict --verbose=2 "${application_path}"
+
+designated_requirement="$(
+  codesign --display --requirements - "${application_path}" 2>&1 |
+    awk '/^designated => / { print; exit }'
+)"
+if [[ "${designated_requirement}" != *"identifier \"${bundle_identifier}\""* ]]; then
+  echo "Unexpected designated requirement: ${designated_requirement}" >&2
+  exit 1
+fi
 
 ditto "${application_path}" "${staging_directory}/Screenly.app"
 ln -s /Applications "${staging_directory}/Applications"

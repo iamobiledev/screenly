@@ -2,7 +2,9 @@ import Foundation
 import Security
 
 enum KeychainStore {
-    private static let service = "com.screenly.recorder"
+    // Do not read credentials created by the original ad-hoc build identity.
+    // Their Keychain ACL can repeatedly prompt after each app rebuild.
+    private static let service = "com.screenly.recorder.v2.session.v1"
 
     static func string(for account: String) -> String {
         let query: [CFString: Any] = [
