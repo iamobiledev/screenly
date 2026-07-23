@@ -68,12 +68,18 @@ jobs:
           unsigned_build=true
 
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
-            version="${GITHUB_REF_NAME#internal-v}"
+            tag_version="${GITHUB_REF_NAME#internal-v}"
+            version="${tag_version%%-build*}"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="${{ inputs.version }}"
             publish_release=true
           elif [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             publish_release=true
+          fi
+
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::Invalid macOS release version: $version"
+            exit 1
           fi
 
           if [[ "$publish_release" == "true" &&

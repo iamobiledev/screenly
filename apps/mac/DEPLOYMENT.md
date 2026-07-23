@@ -23,25 +23,28 @@ The version in `apps/mac/project.yml` must match the version being published.
 For an internal ad-hoc-signed validation build, tag the exact source commit:
 
 ```bash
-git tag internal-v0.2.3 <commit-sha>
-git push origin internal-v0.2.3
+git tag internal-v0.2.2-build2 <commit-sha>
+git push origin internal-v0.2.2-build2
 gh run list --workflow macos-release.yml --limit 5
 ```
+
+Use a `-buildN` suffix when rebuilding an existing marketing version. The
+workflow strips that suffix, so this tag still produces app version `0.2.2`.
 
 Wait for the `Release macOS recorder` run to succeed. Record its run ID and
 commit SHA. Download the artifact without rebuilding it:
 
 ```bash
 gh run download <run-id> \
-  --name Screenly-0.2.3 \
-  --dir /tmp/screenly-release-0.2.3
+  --name Screenly-0.2.2 \
+  --dir /tmp/screenly-release-0.2.2
 ```
 
 Verify that the generated checksum matches the DMG:
 
 ```bash
-actual="$(shasum -a 256 /tmp/screenly-release-0.2.3/Screenly.dmg | awk '{print $1}')"
-declared="$(awk '{print $1}' /tmp/screenly-release-0.2.3/Screenly.dmg.sha256)"
+actual="$(shasum -a 256 /tmp/screenly-release-0.2.2/Screenly.dmg | awk '{print $1}')"
+declared="$(awk '{print $1}' /tmp/screenly-release-0.2.2/Screenly.dmg.sha256)"
 test "$actual" = "$declared"
 ```
 
@@ -65,7 +68,7 @@ ad-hoc releases.
 Publish the exact downloaded artifact, not a local rebuild:
 
 ```bash
-version=0.2.3
+version=0.2.2
 project=screenly-503001
 bucket=screenly-media-screenly-503001
 release_dir=/tmp/screenly-release-$version
@@ -153,7 +156,7 @@ first `0.2.2` build.
 
 ## TCC identity migration
 
-Version `0.2.3` intentionally uses the fresh bundle identifier
+The rebuilt version `0.2.2` intentionally uses the fresh bundle identifier
 `com.screenly.recorder.v2`. This creates a new Screen Recording TCC row instead
 of colliding with stale rows whose code requirement came from the original
 ad-hoc releases. The ad-hoc designated requirement, app bundle identifier, and
