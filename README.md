@@ -558,19 +558,17 @@ workflow imports the Developer ID certificate, notarizes the version in
 objects to S3-compatible storage. The latest object includes version and
 checksum metadata so the web download updates without a separate Vercel
 environment change. When release credentials are incomplete, the workflow
-publishes an ad-hoc-signed build through the Google deployer identity instead
-of failing the deployment. Users must approve ad-hoc builds with
-**Control-click → Open**. Configure these secrets to enable Developer ID
-signing and notarization:
+falls back to an unsigned verification artifact and skips publishing instead
+of failing the deployment. Configure these secrets to enable publishing:
 
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
 - `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
+- `MAC_RELEASE_STORAGE_ACCESS_KEY_ID`, `MAC_RELEASE_STORAGE_SECRET_ACCESS_KEY`
 
-The publishing job reuses `GCP_DEPLOYER_KEY` or the backend workflow's Workload
-Identity Federation settings. Grant that identity `roles/storage.objectAdmin`
-on the release bucket. It defaults to `screenly-media-$GCP_PROJECT_ID`;
-`MAC_RELEASE_STORAGE_BUCKET` can override the bucket name.
-Set `MAC_APP_DOWNLOAD_URL` on the web service;
+Configure repository variables `MAC_RELEASE_STORAGE_URI`,
+`MAC_RELEASE_STORAGE_REGION`, and optional `MAC_RELEASE_STORAGE_ENDPOINT`.
+For Cloud Storage use an `s3://BUCKET/releases` URI, region `auto`, and endpoint
+`https://storage.googleapis.com`. Set `MAC_APP_DOWNLOAD_URL` on the web service;
 `MAC_APP_VERSION` and `MAC_APP_SHA256` remain fallbacks for release objects
 published before metadata support. `/download` and
 `/api/releases/macos/latest` expose the latest signed build.
