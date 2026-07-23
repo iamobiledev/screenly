@@ -23,7 +23,7 @@ final class RecordingOverlayController {
         )
         panel.backgroundColor = .clear
         panel.isOpaque = false
-        panel.hasShadow = true
+        panel.hasShadow = false
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         panel.contentView = NSHostingView(
@@ -43,51 +43,64 @@ private struct RecordingHUDView: View {
     @ObservedObject var controller: RecordingController
 
     var body: some View {
-        Group {
+        ZStack {
             if case let .countdown(count) = controller.state {
                 Text("\(count)")
-                    .font(.system(size: 48, weight: .bold, design: .rounded))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .font(.system(size: 46, weight: .semibold, design: .rounded))
+                    .contentTransition(.numericText())
+                    .frame(width: 78, height: 78)
+                    .glassCard(cornerRadius: 28)
+                    .accessibilityLabel("Recording starts in \(count)")
             } else {
                 HStack(spacing: 14) {
                     Circle()
                         .fill(.red)
-                        .frame(width: 10, height: 10)
+                        .frame(width: 9, height: 9)
                     Text(formattedElapsed)
                         .font(.system(.body, design: .monospaced).weight(.semibold))
                     Spacer()
-                    Button {
-                        controller.pauseOrResume()
-                    } label: {
-                        Image(
-                            systemName: controller.state == .paused
-                                ? "play.fill"
-                                : "pause.fill"
-                        )
-                    }
-                    .help(controller.state == .paused ? "Resume" : "Pause")
+                    GlassGroup(spacing: 8) {
+                        HStack(spacing: 8) {
+                            Button {
+                                controller.pauseOrResume()
+                            } label: {
+                                Image(
+                                    systemName: controller.state == .paused
+                                        ? "play.fill"
+                                        : "pause.fill"
+                                )
+                            }
+                            .glassButton()
+                            .help(controller.state == .paused ? "Resume" : "Pause")
 
-                    Button {
-                        controller.stop()
-                    } label: {
-                        Image(systemName: "stop.fill")
-                    }
-                    .help("Stop and upload")
+                            Button {
+                                controller.stop()
+                            } label: {
+                                Image(systemName: "stop.fill")
+                            }
+                            .glassProminentButton()
+                            .tint(.red)
+                            .help("Stop and upload")
 
-                    Button(role: .destructive) {
-                        controller.discard()
-                    } label: {
-                        Image(systemName: "trash")
+                            Button(role: .destructive) {
+                                controller.discard()
+                            } label: {
+                                Image(systemName: "trash")
+                            }
+                            .glassButton()
+                            .help("Discard recording")
+                        }
                     }
-                    .help("Discard recording")
                 }
-                .buttonStyle(.borderless)
-                .padding(.horizontal, 20)
+                .controlSize(.large)
+                .padding(.horizontal, 16)
+                .frame(width: 348, height: 66)
+                .glassCard(cornerRadius: 24)
             }
         }
-        .foregroundStyle(.white)
-        .background(.black.opacity(0.88), in: RoundedRectangle(cornerRadius: 18))
-        .padding(6)
+        .foregroundStyle(.primary)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .animation(.smooth(duration: 0.22), value: controller.state)
     }
 
     private var formattedElapsed: String {

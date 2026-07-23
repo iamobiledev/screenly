@@ -1,6 +1,10 @@
 name: Release macOS recorder
 
 on:
+  pull_request:
+    paths:
+      - "apps/mac/**"
+      - ".github/workflows/macos-release.yml"
   workflow_dispatch:
     inputs:
       version:
@@ -40,9 +44,15 @@ jobs:
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
             version="${GITHUB_REF_NAME#internal-v}"
             echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
-          else
+          elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="${{ inputs.version }}"
             echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
+          else
+            version="$(
+              awk -F '"' '/MARKETING_VERSION:/ { print $2; exit }' \
+                apps/mac/project.yml
+            )"
+            echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
           fi
           echo "MAC_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "version=$version" >> "$GITHUB_OUTPUT"
