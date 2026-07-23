@@ -33,6 +33,8 @@ jobs:
       APPLE_ID: ${{ secrets.APPLE_ID }}
       APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
       APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
+      CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
       MAC_BUILD_NUMBER: ${{ github.run_number }}
       AWS_ACCESS_KEY_ID: ${{ secrets.MAC_RELEASE_STORAGE_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.MAC_RELEASE_STORAGE_SECRET_ACCESS_KEY }}
@@ -46,6 +48,24 @@ jobs:
       - name: Resolve release settings
         id: release
         run: |
+          release_configured=true
+          required_release_variables=(
+            APPLE_ID
+            APPLE_APP_PASSWORD
+            APPLE_TEAM_ID
+            CERTIFICATE_P12_BASE64
+            CERTIFICATE_PASSWORD
+            AWS_ACCESS_KEY_ID
+            AWS_SECRET_ACCESS_KEY
+            AWS_DEFAULT_REGION
+            MAC_RELEASE_STORAGE_URI
+          )
+          for variable in "${required_release_variables[@]}"; do
+            if [[ -z "${!variable:-}" ]]; then
+              release_configured=false
+            fi
+          done
+
           if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#internal-v}"
             echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
@@ -59,7 +79,8 @@ jobs:
               awk -F '"' '/MARKETING_VERSION:/ { print $2; exit }' \
                 apps/mac/project.yml
             )"
-            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            if [[ "$GITHUB_EVENT_NAME" == "push" &&
+                  "$release_configured" == "true" ]]; then
               echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
               echo "MAC_PUBLISH_RELEASE=true" >> "$GITHUB_ENV"
             else
@@ -70,14 +91,50 @@ jobs:
           echo "MAC_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "version=$version" >> "$GITHUB_OUTPUT"
 
+      - name: Explain skipped automatic release
+        if: >-
+          github.event_name == 'push' &&
+          github.ref == 'refs/heads/main' &&
+          env.MAC_PUBLISH_RELEASE != 'true'
+        run: |
+          echo "::warning::Release credentials are incomplete; building an unsigned verification artifact without publishing."
+          {
+            echo "### macOS release not published"
+            echo
+            echo "Release credentials or storage settings are incomplete."
+            echo "This run will verify the app with an unsigned build only."
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Validate publish configuration
+        if: env.MAC_PUBLISH_RELEASE == 'true'
+        run: |
+          missing=()
+          required_release_variables=(
+            APPLE_ID
+            APPLE_APP_PASSWORD
+            APPLE_TEAM_ID
+            CERTIFICATE_P12_BASE64
+            CERTIFICATE_PASSWORD
+            AWS_ACCESS_KEY_ID
+            AWS_SECRET_ACCESS_KEY
+            AWS_DEFAULT_REGION
+            MAC_RELEASE_STORAGE_URI
+          )
+          for variable in "${required_release_variables[@]}"; do
+            if [[ -z "${!variable:-}" ]]; then
+              missing+=("$variable")
+            fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "::error::Missing release configuration: ${missing[*]}"
+            exit 1
+          fi
+
       - name: Install build tools
         run: brew install xcodegen awscli
 
       - name: Import Developer ID certificate
         if: env.MAC_PUBLISH_RELEASE == 'true'
-        env:
-          CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
-          CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
         run: |
           keychain_path="$RUNNER_TEMP/screenly-signing.keychain-db"
           certificate_path="$RUNNER_TEMP/developer-id.p12"
