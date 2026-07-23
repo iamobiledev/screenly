@@ -388,8 +388,9 @@ Production is split between two platforms:
   applies Drizzle migrations to the production database, optionally triggers
   the Vercel production deploy through a Deploy Hook (so schema changes land
   before the new web build), and rebuilds/updates the `screenly-processor`
-  worker image. When `CLOUD_RUN_WORKER_POOL` is configured it updates that
-  warm pool; otherwise it preserves the one-shot Cloud Run Job deployment.
+  worker image and updates the warm `screenly-processor-pool`. Set the
+  `PROCESSOR_RUNTIME` repository variable to `job` only when intentionally
+  using the scale-to-zero Cloud Run Job fallback.
 
 ### Vercel setup
 
@@ -479,9 +480,10 @@ Then configure these GitHub repository **variables**: `GCP_PROJECT_ID`,
 `GCP_WORKLOAD_IDENTITY_PROVIDER`
 (`projects/PROJECT_NUMBER/locations/global/workloadIdentityPools/github/providers/github-actions`),
 `GCP_DEPLOY_SERVICE_ACCOUNT`
-(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`), and optionally
-`CLOUD_RUN_WORKER_POOL=screenly-processor-pool`. If the pool variable is
-absent, `CLOUD_RUN_JOB` can override the fallback job name
+(`screenly-deployer@PROJECT_ID.iam.gserviceaccount.com`). The workflow updates
+`screenly-processor-pool` by default; `CLOUD_RUN_WORKER_POOL` can override that
+name. To intentionally use the scale-to-zero fallback, set
+`PROCESSOR_RUNTIME=job`; `CLOUD_RUN_JOB` can override its default name,
 `screenly-processor`.
 
 The migration job skips itself without the `DATABASE_URL` secret and the
@@ -499,8 +501,8 @@ Use this order to avoid interrupting uploads:
    existing job.
 2. Confirm the pool stays running and logs `Warm processing worker pool
    started.`
-3. Set the `CLOUD_RUN_WORKER_POOL` repository variable so later backend
-   deployments update the pool.
+3. If the pool has a non-default name, set the `CLOUD_RUN_WORKER_POOL`
+   repository variable so later backend deployments update it.
 4. Change the web service to `PROCESSOR_MODE=worker-pool` and redeploy it.
 5. Upload a short canary and compare `uploaded_at` with
    `processing_started_at`; an idle pool should begin within a few seconds.
