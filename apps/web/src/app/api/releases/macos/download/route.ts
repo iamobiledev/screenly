@@ -5,7 +5,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  const release = getMacRelease();
+  const release = await getMacRelease();
 
   if (!release) {
     return Response.json(
@@ -20,7 +20,7 @@ export async function GET() {
   }
 
   const signedURL = await getDownloadUrl(
-    getMacReleaseObjectKey(release.version),
+    getMacReleaseObjectKey(),
     `Screenly-${release.version}.dmg`,
   );
 

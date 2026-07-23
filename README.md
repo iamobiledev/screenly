@@ -552,10 +552,12 @@ bucket. Gatekeeper does not trust ad-hoc signatures, so users must explicitly
 approve the app with **Control-click → Open**. Use the notarized workflow above
 before distributing outside the team.
 
-The `Release macOS recorder` GitHub Actions workflow additionally imports the
-Developer ID certificate and publishes versioned and `Screenly-latest.dmg`
-objects to S3-compatible storage, including Cloud Storage's XML API. Configure
-these secrets:
+On a `main` push that changes the recorder, the `Release macOS recorder`
+workflow imports the Developer ID certificate, notarizes the version in
+`apps/mac/project.yml`, and publishes versioned and `Screenly-latest.dmg`
+objects to S3-compatible storage. The latest object includes version and
+checksum metadata so the web download updates without a separate Vercel
+environment change. Configure these secrets:
 
 - `APPLE_ID`, `APPLE_APP_PASSWORD`, `APPLE_TEAM_ID`
 - `MACOS_CERTIFICATE_P12_BASE64`, `MACOS_CERTIFICATE_PASSWORD`
@@ -564,9 +566,10 @@ these secrets:
 Configure repository variables `MAC_RELEASE_STORAGE_URI`,
 `MAC_RELEASE_STORAGE_REGION`, and optional `MAC_RELEASE_STORAGE_ENDPOINT`.
 For Cloud Storage use an `s3://BUCKET/releases` URI, region `auto`, and endpoint
-`https://storage.googleapis.com`. Finally set `MAC_APP_DOWNLOAD_URL`,
-`MAC_APP_VERSION`, and `MAC_APP_SHA256` on the web service. `/download` and
-`/api/releases/macos/latest` then expose the signed build.
+`https://storage.googleapis.com`. Set `MAC_APP_DOWNLOAD_URL` on the web service;
+`MAC_APP_VERSION` and `MAC_APP_SHA256` remain fallbacks for release objects
+published before metadata support. `/download` and
+`/api/releases/macos/latest` expose the latest signed build.
 
 ## Current verification commands
 

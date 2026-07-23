@@ -12,6 +12,11 @@ on:
         required: true
         type: string
   push:
+    branches:
+      - main
+    paths:
+      - "apps/mac/**"
+      - ".github/workflows/macos-release.yml"
     tags:
       - "internal-v*"
 
@@ -41,18 +46,26 @@ jobs:
       - name: Resolve release settings
         id: release
         run: |
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
             version="${GITHUB_REF_NAME#internal-v}"
             echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
+            echo "MAC_PUBLISH_RELEASE=false" >> "$GITHUB_ENV"
           elif [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
             version="${{ inputs.version }}"
             echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
+            echo "MAC_PUBLISH_RELEASE=true" >> "$GITHUB_ENV"
           else
             version="$(
               awk -F '"' '/MARKETING_VERSION:/ { print $2; exit }' \
                 apps/mac/project.yml
             )"
-            echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
+            if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+              echo "MAC_UNSIGNED_BUILD=false" >> "$GITHUB_ENV"
+              echo "MAC_PUBLISH_RELEASE=true" >> "$GITHUB_ENV"
+            else
+              echo "MAC_UNSIGNED_BUILD=true" >> "$GITHUB_ENV"
+              echo "MAC_PUBLISH_RELEASE=false" >> "$GITHUB_ENV"
+            fi
           fi
           echo "MAC_APP_VERSION=$version" >> "$GITHUB_ENV"
           echo "version=$version" >> "$GITHUB_OUTPUT"
@@ -61,7 +74,7 @@ jobs:
         run: brew install xcodegen awscli
 
       - name: Import Developer ID certificate
-        if: github.event_name == 'workflow_dispatch'
+        if: env.MAC_PUBLISH_RELEASE == 'true'
         env:
           CERTIFICATE_P12_BASE64: ${{ secrets.MACOS_CERTIFICATE_P12_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
@@ -89,19 +102,25 @@ jobs:
         run: bash apps/mac/scripts/build-release.sh
 
       - name: Publish versioned and latest downloads
-        if: github.event_name == 'workflow_dispatch'
+        if: env.MAC_PUBLISH_RELEASE == 'true'
         run: |
           endpoint_args=()
           if [[ -n "${STORAGE_ENDPOINT_URL:-}" ]]; then
             endpoint_args+=(--endpoint-url "$STORAGE_ENDPOINT_URL")
           fi
           release_dir="apps/mac/build/release"
+          sha256="$(awk '{ print $1 }' "$release_dir/Screenly.dmg.sha256")"
+          release_metadata="version=$MAC_APP_VERSION,sha256=$sha256"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_STORAGE_URI/Screenly-$MAC_APP_VERSION.dmg"
+            "$MAC_RELEASE_STORAGE_URI/Screenly-$MAC_APP_VERSION.dmg" \
+            --content-type application/x-apple-diskimage \
+            --metadata "$release_metadata"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg" \
-            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg"
+            "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg" \
+            --content-type application/x-apple-diskimage \
+            --metadata "$release_metadata"
           aws "${endpoint_args[@]}" s3 cp \
             "$release_dir/Screenly.dmg.sha256" \
             "$MAC_RELEASE_STORAGE_URI/Screenly-latest.dmg.sha256"

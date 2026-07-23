@@ -133,6 +133,18 @@ export async function objectExists(key: string) {
   }
 }
 
+export async function getObjectMetadata(key: string) {
+  const env = getServerEnv();
+  const result = await getStorageClient().send(
+    new HeadObjectCommand({
+      Bucket: env.STORAGE_BUCKET,
+      Key: key,
+    }),
+  );
+
+  return result.Metadata ?? {};
+}
+
 export async function abortMultipartUpload(input: {
   key: string;
   uploadId: string;
