@@ -2,6 +2,7 @@ import AppKit
 import AVFoundation
 import Combine
 import CoreGraphics
+@preconcurrency import ScreenCaptureKit
 
 @MainActor
 final class PermissionManager: ObservableObject {
@@ -16,7 +17,7 @@ final class PermissionManager: ObservableObject {
         )
         .sink { [weak self] _ in
             Task { @MainActor [weak self] in
-                self?.refresh()
+                await self?.refreshScreenAccess()
             }
         }
         .store(in: &cancellables)
@@ -27,15 +28,29 @@ final class PermissionManager: ObservableObject {
     }
 
     func refresh() {
-        canRecordScreen = CGPreflightScreenCaptureAccess()
         cameraStatus = AVCaptureDevice.authorizationStatus(for: .video)
         microphoneStatus = AVCaptureDevice.authorizationStatus(for: .audio)
+        Task { [weak self] in
+            await self?.refreshScreenAccess()
+        }
     }
 
     func requestScreen() {
         // The system prompt is asynchronous. Its immediate return value is not
         // a final authorization result, so refresh when Screenly is activated.
         _ = CGRequestScreenCaptureAccess()
+    }
+
+    private func refreshScreenAccess() async {
+        do {
+            _ = try await SCShareableContent.excludingDesktopWindows(
+                true,
+                onScreenWindowsOnly: true
+            )
+            canRecordScreen = true
+        } catch {
+            canRecordScreen = false
+        }
     }
 
     func requestCamera() async {

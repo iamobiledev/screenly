@@ -82,6 +82,11 @@ struct RecordingSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
+            if case let .failed(message) = controller.state {
+                Label(message, systemImage: "exclamationmark.triangle")
+                    .font(.caption)
+                    .foregroundStyle(.red)
+            }
 
             HStack {
                 Label(settings.hotkey.label, systemImage: "keyboard")
@@ -111,6 +116,11 @@ struct RecordingSetupView: View {
                 Task {
                     await refreshCaptureSources()
                 }
+            }
+        }
+        .onChange(of: controller.state) { _, state in
+            if case .countdown = state {
+                closeWindow()
             }
         }
     }
@@ -209,7 +219,6 @@ struct RecordingSetupView: View {
                 target: .display(displayID: selectedDisplayID),
                 options: options
             )
-            closeWindow()
 
         case .window:
             guard let selectedWindowID else { return }
@@ -217,7 +226,6 @@ struct RecordingSetupView: View {
                 target: .window(windowID: selectedWindowID),
                 options: options
             )
-            closeWindow()
 
         case .area:
             guard let selectedDisplayID else { return }

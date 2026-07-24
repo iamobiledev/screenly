@@ -36,12 +36,6 @@ final class RecordingController: ObservableObject {
             )
             return
         }
-        guard permissions.canRecordScreen else {
-            state = .failed(
-                message: "Screen Recording permission is required."
-            )
-            return
-        }
         if options.capturesMicrophone,
            permissions.microphoneStatus != .authorized {
             state = .failed(message: "Microphone permission is required.")
