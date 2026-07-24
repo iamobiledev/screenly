@@ -82,7 +82,24 @@ struct RecordingSetupView: View {
                     .font(.caption)
                     .foregroundStyle(.red)
             }
-            if case let .failed(message) = controller.state {
+            if settings.capturesMicrophone,
+               permissions.microphoneStatus != .authorized {
+                HStack {
+                    Label(
+                        "Microphone permission is required.",
+                        systemImage: "mic.slash"
+                    )
+                    .font(.caption)
+                    .foregroundStyle(.red)
+                    Spacer()
+                    Button(microphonePermissionButtonTitle) {
+                        resolveMicrophonePermission()
+                    }
+                    .glassButton()
+                }
+            }
+            if case let .failed(message) = controller.state,
+               message != "Microphone permission is required." {
                 Label(message, systemImage: "exclamationmark.triangle")
                     .font(.caption)
                     .foregroundStyle(.red)
@@ -109,7 +126,18 @@ struct RecordingSetupView: View {
         .frame(width: 620)
         .glassWindowSurface()
         .task {
+            if settings.capturesMicrophone,
+               permissions.microphoneStatus == .notDetermined {
+                await permissions.requestMicrophone()
+            }
             await refreshCaptureSources()
+        }
+        .onChange(of: settings.capturesMicrophone) { _, isEnabled in
+            if isEnabled, permissions.microphoneStatus == .notDetermined {
+                Task {
+                    await permissions.requestMicrophone()
+                }
+            }
         }
         .onChange(of: permissions.canRecordScreen) { _, isGranted in
             if isGranted {
@@ -255,6 +283,22 @@ struct RecordingSetupView: View {
         await sources.refresh()
         selectedDisplayID = selectedDisplayID ?? sources.displays.first?.id
         selectedWindowID = selectedWindowID ?? sources.windows.first?.id
+    }
+
+    private var microphonePermissionButtonTitle: String {
+        permissions.microphoneStatus == .notDetermined
+            ? "Allow Microphone"
+            : "Open Microphone Settings"
+    }
+
+    private func resolveMicrophonePermission() {
+        if permissions.microphoneStatus == .notDetermined {
+            Task {
+                await permissions.requestMicrophone()
+            }
+        } else {
+            permissions.openMicrophoneSettings()
+        }
     }
 
     private var audioDevices: [AVCaptureDevice] {

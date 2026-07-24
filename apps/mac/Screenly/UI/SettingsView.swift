@@ -95,6 +95,38 @@ struct SettingsView: View {
                     }
                     .glassButton()
                 }
+                if appModel.permissions.microphoneStatus != .authorized {
+                    Button(
+                        appModel.permissions.microphoneStatus == .notDetermined
+                            ? "Allow Microphone"
+                            : "Open Microphone Settings"
+                    ) {
+                        if appModel.permissions.microphoneStatus == .notDetermined {
+                            Task {
+                                await appModel.permissions.requestMicrophone()
+                            }
+                        } else {
+                            appModel.permissions.openMicrophoneSettings()
+                        }
+                    }
+                    .glassButton()
+                }
+                if appModel.permissions.cameraStatus != .authorized {
+                    Button(
+                        appModel.permissions.cameraStatus == .notDetermined
+                            ? "Allow Camera"
+                            : "Open Camera Settings"
+                    ) {
+                        if appModel.permissions.cameraStatus == .notDetermined {
+                            Task {
+                                await appModel.permissions.requestCamera()
+                            }
+                        } else {
+                            appModel.permissions.openCameraSettings()
+                        }
+                    }
+                    .glassButton()
+                }
             } header: {
                 Label("Permissions", systemImage: "lock.shield")
             }
